@@ -15,6 +15,7 @@ import (
 
 const sample = `services:
   pdf-service: { image: ghcr.io/ogen-app/pdf-service, build: 7, repo: ogen-app/pdf-service, railwayServiceId: svc-pdf }
+  river-service: { image: ghcr.io/ogen-app/river-service, build: 37, repo: ogen-app/river-service, railwayServiceIds: [svc-river, svc-river-heavy] }
   api: { image: ghcr.io/ogen-app/ogen, build: 1552, repo: ogen-app/ogen, railwayServiceId: svc-api }
   ui: { image: ghcr.io/ogen-app/ui, build: 99, repo: ogen-app/ui, railwayServiceId: svc-ui }
 environments:
@@ -47,9 +48,11 @@ func newFake() *fakeRailway {
 	return &fakeRailway{
 		token: railway.ProjectToken{ProjectID: "proj", EnvironmentID: "env-dev"},
 		instances: map[string]railway.ServiceInstance{
-			"svc-pdf": instance("ghcr.io/ogen-app/pdf-service:7"),
-			"svc-api": api,
-			"svc-ui":  instance("ghcr.io/ogen-app/ui:99"),
+			"svc-pdf":         instance("ghcr.io/ogen-app/pdf-service:7"),
+			"svc-river":       instance("ghcr.io/ogen-app/river-service:37"),
+			"svc-river-heavy": instance("ghcr.io/ogen-app/river-service:37"),
+			"svc-api":         api,
+			"svc-ui":          instance("ghcr.io/ogen-app/ui:99"),
 		},
 		statuses: map[string][]string{},
 	}
@@ -113,7 +116,8 @@ func TestDeployOnlyChangedServices(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []string{"read svc-pdf", "read svc-api", "var svc-api", "update svc-api", "deploy svc-api", "read svc-ui"}
+	want := []string{"read svc-pdf", "read svc-river", "read svc-river-heavy",
+		"read svc-api", "var svc-api", "update svc-api", "deploy svc-api", "read svc-ui"}
 	if !slices.Equal(api.calls, want) {
 		t.Errorf("calls = %v, want %v", api.calls, want)
 	}
@@ -236,6 +240,84 @@ func TestDeployRefusesTokenForAnotherEnvironment(t *testing.T) {
 	}
 	if len(api.calls) != 0 {
 		t.Errorf("calls = %v, want none", api.calls)
+	}
+}
+
+// setRunning makes a fake instance run image, as if Railway had deployed it.
+func (f *fakeRailway) setRunning(serviceID, image string) {
+	inst := f.instances[serviceID]
+	inst.Image = image
+	inst.LatestDeployment = &railway.Deployment{ID: "old", Status: railway.StatusSuccess, Image: image}
+	f.instances[serviceID] = inst
+}
+
+// One river-service bump moves both Railway services that run its image, light
+// first, each with the entry's SENTRY_RELEASE.
+func TestDeployEveryServiceOfAnEntry(t *testing.T) {
+	api := newFake()
+	api.setRunning("svc-river", "ghcr.io/ogen-app/river-service:36")
+	api.setRunning("svc-river-heavy", "ghcr.io/ogen-app/river-service:36")
+	api.setRunning("svc-api", "ghcr.io/ogen-app/ogen:1552")
+
+	var logs []string
+	o := opts("development")
+	o.logf = func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }
+	if err := deploy(t.Context(), api, parse(t), o); err != nil {
+		t.Fatal(err)
+	}
+
+	var deployed []string
+	for _, u := range api.updates {
+		deployed = append(deployed, u.ServiceID)
+		if u.Image != "ghcr.io/ogen-app/river-service:37" {
+			t.Errorf("update %s: image %s", u.ServiceID, u.Image)
+		}
+	}
+	if want := []string{"svc-river", "svc-river-heavy"}; !slices.Equal(deployed, want) {
+		t.Errorf("deployed %v, want %v", deployed, want)
+	}
+	for _, v := range api.vars {
+		if v.Value != "river-service@37" {
+			t.Errorf("%s: SENTRY_RELEASE = %s", v.ServiceID, v.Value)
+		}
+	}
+	if !slices.Contains(logs, "river-service (2 of 2): ghcr.io/ogen-app/river-service:37 deployed") {
+		t.Errorf("logs don't name the second service: %q", logs)
+	}
+	for _, l := range logs {
+		if strings.Contains(l, "svc-river") {
+			t.Errorf("log names a Railway id: %q", l)
+		}
+	}
+}
+
+// Each Railway service of an entry is judged on its own: one already running
+// the pin is skipped while the other deploys.
+func TestDeployOnlyTheOutdatedServiceOfAnEntry(t *testing.T) {
+	api := newFake()
+	api.setRunning("svc-river-heavy", "ghcr.io/ogen-app/river-service:36")
+	api.setRunning("svc-api", "ghcr.io/ogen-app/ogen:1552")
+
+	if err := deploy(t.Context(), api, parse(t), opts("development")); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.updates) != 1 || api.updates[0].ServiceID != "svc-river-heavy" {
+		t.Errorf("updates = %+v, want svc-river-heavy only", api.updates)
+	}
+}
+
+func TestDeployEntryStopsAtFirstFailedService(t *testing.T) {
+	api := newFake()
+	api.setRunning("svc-river", "ghcr.io/ogen-app/river-service:36")
+	api.setRunning("svc-river-heavy", "ghcr.io/ogen-app/river-service:36")
+	api.statuses["svc-river"] = []string{"DEPLOYING", railway.StatusCrashed}
+
+	err := deploy(t.Context(), api, parse(t), opts("development"))
+	if err == nil || !strings.Contains(err.Error(), "river-service (1 of 2)") || !strings.Contains(err.Error(), railway.StatusCrashed) {
+		t.Fatalf("err = %v", err)
+	}
+	if slices.Contains(api.calls, "read svc-river-heavy") || slices.Contains(api.calls, "read svc-api") {
+		t.Errorf("chain continued after failure: %v", api.calls)
 	}
 }
 

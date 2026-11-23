@@ -53,15 +53,30 @@ func TestBumpIgnoresOlderOrSameBuild(t *testing.T) {
 	}
 }
 
+// ui publishes and dispatches before it joins release.yaml; its bumps must not
+// fail the workflow or touch the file.
+func TestBumpIgnoresServiceNotInReleaseYAML(t *testing.T) {
+	path := writeSample(t)
+	msg, err := run(path, "ui", 101, sha)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg != "" {
+		t.Errorf("msg = %q, want no-op", msg)
+	}
+	if got, _ := os.ReadFile(path); string(got) != sample {
+		t.Error("file changed")
+	}
+}
+
 func TestBumpRejectsBadInput(t *testing.T) {
 	for name, tc := range map[string]struct {
 		service, revision string
 		build             int
 	}{
-		"unknown service": {"nope", sha, 101},
-		"zero build":      {"api", sha, 0},
-		"short revision":  {"api", "9d286386", 101},
-		"bad revision":    {"api", "$(whoami)" + strings.Repeat("a", 31), 101},
+		"zero build":     {"api", sha, 0},
+		"short revision": {"api", "9d286386", 101},
+		"bad revision":   {"api", "$(whoami)" + strings.Repeat("a", 31), 101},
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := writeSample(t)

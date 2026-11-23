@@ -4,7 +4,9 @@ The Ogen product release: which build of every service ships together, and the
 workflows that deploy it. No service code lives here.
 
 - `release.yaml` pins `ghcr.io/ogen-app/<service>:<build>` for each service, in
-  deploy order, with its Railway ids.
+  deploy order, with its Railway ids. An image that runs as several Railway
+  services lists them all under `railwayServiceIds` (river-service: light, then
+  heavy); one bump moves them all, and they deploy in that order.
 - A push to `main` deploys **development**, which is also staging.
 - A tag `vN.0.0` (**Ogen N**) deploys **production** after approval, with the
   same images (phase 5, CON-520).
@@ -16,7 +18,8 @@ workflows that deploy it. No service code lives here.
 2. [`bump.yml`](.github/workflows/bump.yml) runs `cmd/bump`, which pins the new
    build and commits `fix(deps): <service> <old> → <new>` to `main` as the
    `ogen-release-bot` App. A build at or below the pinned one is ignored, so a
-   late or replayed dispatch never downgrades.
+   late or replayed dispatch never downgrades. So is a service `release.yaml`
+   doesn't list yet: its repo can publish before it is onboarded.
 3. [`deploy-development.yml`](.github/workflows/deploy-development.yml) runs
    `cmd/deploy --env development`, then the smoke checks, and reports the
    result as the commit status `development-smoke`.
