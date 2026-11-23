@@ -1,0 +1,19 @@
+# The product lock file: the build of every service that ships together.
+#
+# A push to main deploys development; a tag vN.0.0 (Ogen N) deploys production
+# with the same images. Service CI bumps `build` through a `bump` dispatch
+# (.github/workflows/bump.yml); people change this file through PRs.
+#
+# Services are listed in deploy order.
+services:
+  api:
+    image: ghcr.io/ogen-app/ogen
+    build: 1551
+    repo: ogen-app/ogen
+    railwayServiceId: ""
+
+environments:
+  development:
+    railwayEnvironmentId: ""
+  production:
+    railwayEnvironmentId: ""

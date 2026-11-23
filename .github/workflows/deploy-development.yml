@@ -1,0 +1,78 @@
+name: Deploy development
+
+# Every push to main (bump commits and merged PRs) deploys release.yaml to the
+# development environment, smoke-tests it, and reports the result as the commit
+# status `development-smoke`, which gates the Release PR.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# One deploy at a time, never cancelling a running one. A waiting run may be
+# replaced by a newer push: that's fine, because the deploy compares Railway
+# against the newest release.yaml and catches up on everything at once.
+concurrency:
+  group: deploy-development
+  cancel-in-progress: false
+
+permissions:
+  contents: write # moves the deployed/development tag
+  statuses: write # development-smoke
+
+jobs:
+  deploy:
+    name: Deploy and smoke-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - name: Mark development-smoke pending
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending -f context=development-smoke \
+            -f description="Deploying to development" -f target_url="$RUN_URL"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_DEVELOPMENT }}
+        run: go run ./cmd/deploy --env development --ref "$GITHUB_SHA"
+
+      - name: Smoke test
+        env:
+          SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+          SMOKE_DEVICE_COOKIE: ${{ secrets.SMOKE_DEVICE_COOKIE }}
+          BASE_URL: ${{ vars.DEVELOPMENT_BASE_URL }}
+        run: go run ./cmd/smoke --base-url "$BASE_URL"
+
+      # An audit marker only; nothing reads it (Railway is the truth, D7).
+      - name: Move deployed/development
+        run: |
+          git tag -f deployed/development "$GITHUB_SHA"
+          git push -f origin refs/tags/deployed/development
+
+      - name: Report development-smoke
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            success)   state=success; description="Deployed and smoke-tested" ;;
+            cancelled) state=error;   description="Cancelled" ;;
+            *)         state=failure; description="Deploy or smoke test failed" ;;
+          esac
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$state" -f context=development-smoke \
+            -f description="$description" -f target_url="$RUN_URL"
