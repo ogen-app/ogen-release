@@ -77,6 +77,9 @@ func TestBumpRejectsBadInput(t *testing.T) {
 		"zero build":     {"api", sha, 0},
 		"short revision": {"api", "9d286386", 101},
 		"bad revision":   {"api", "$(whoami)" + strings.Repeat("a", 31), 101},
+		"no service":     {"", sha, 101},
+		"bad service":    {"::warning::x", sha, 101},
+		"upper service":  {"API", sha, 101},
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := writeSample(t)
