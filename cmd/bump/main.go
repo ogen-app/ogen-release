@@ -20,7 +20,12 @@ import (
 	"github.com/ogen-app/ogen-release/internal/release"
 )
 
-var revisionRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+var (
+	revisionRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	// serviceRE is what a release.yaml service name looks like. The name comes
+	// from an untrusted dispatch payload and is logged, so it's checked first.
+	serviceRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+)
 
 func main() {
 	log.SetFlags(0)
@@ -45,6 +50,9 @@ func run(file, service string, build int, revision string) (string, error) {
 	}
 	if !revisionRE.MatchString(revision) {
 		return "", fmt.Errorf("revision must be a full lowercase commit SHA, got %q", revision)
+	}
+	if !serviceRE.MatchString(service) {
+		return "", fmt.Errorf("service must be a release.yaml service name (lowercase letters, digits, hyphens), got %q", service)
 	}
 
 	data, err := os.ReadFile(file)
