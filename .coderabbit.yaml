@@ -41,13 +41,17 @@ reviews:
       instructions: >-
         Services are listed in deploy order: sidecars, river-service, api,
         harbor, ui. Flag a reordering, a build lowered without a stated
-        rollback reason, an image outside ghcr.io/ogen-app, or a changed
-        railwayServiceId / railwayEnvironmentId.
+        rollback reason, an image outside ghcr.io/ogen-app, or a
+        railwayServiceId / railwayEnvironmentId that changes from one non-empty
+        value to another (that retargets a deploy). Filling an empty id is how
+        a service or environment is onboarded and needs no flag; cmd/deploy
+        --dry-run verifies the ids against Railway.
     - path: "cmd/deploy/**/*.go"
       instructions: >-
-        Railway is the truth for what's deployed (D7): a service deploys when
-        its instance's image differs from release.yaml or its latest
-        deployment isn't healthy, never by diffing git history. Services
+        Railway is the truth for what's deployed (D7): a service is skipped
+        only when its configured image and the image its latest deployment
+        runs both equal release.yaml and that deployment is healthy; it is
+        never decided by diffing git history. Services
         deploy one at a time in file order and the first failure, crash or
         timeout stops the chain. The token must be checked against the target
         environment before any mutation. SENTRY_RELEASE is set with
