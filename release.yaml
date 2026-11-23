@@ -8,7 +8,7 @@
 services:
   api:
     image: ghcr.io/ogen-app/ogen
-    build: 1551
+    build: 1552
     repo: ogen-app/ogen
     railwayServiceId: "93fba1b2-580e-45fa-9321-11bfee4a0d84"
 
