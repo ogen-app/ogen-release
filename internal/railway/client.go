@@ -55,19 +55,24 @@ type Deployment struct {
 // ServiceInstance is a service's configuration in one environment.
 type ServiceInstance struct {
 	Image            string // source image with tag; empty for a repo source
-	NumReplicas      *int
-	Region           *string
 	LatestDeployment *Deployment
+
+	// MultiRegionConfig is where the instance runs and how many replicas, as
+	// Railway stores it: {"<region>": {"numReplicas": n}, …}. Railway leaves
+	// the instance's legacy numReplicas and region fields null and keeps this
+	// only in the latest deployment's manifest, so it's read from there. Nil
+	// when Railway reported neither.
+	MultiRegionConfig json.RawMessage
 }
 
-// SourceUpdate changes a service instance's source image. Replicas and region
-// are always sent with it because Railway is reported to reset them otherwise.
+// SourceUpdate changes a service instance's source image. The multi-region
+// config is always sent with it because Railway is reported to reset replicas
+// and region otherwise.
 type SourceUpdate struct {
-	ServiceID     string
-	EnvironmentID string
-	Image         string
-	NumReplicas   int
-	Region        string
+	ServiceID         string
+	EnvironmentID     string
+	Image             string
+	MultiRegionConfig json.RawMessage
 }
 
 // Variable is a service variable to set.
@@ -114,7 +119,12 @@ func (c *Client) ServiceInstance(ctx context.Context, serviceID, environmentID s
 				ID     string `json:"id"`
 				Status string `json:"status"`
 				Meta   *struct {
-					Image string `json:"image"`
+					Image           string `json:"image"`
+					ServiceManifest *struct {
+						Deploy *struct {
+							MultiRegionConfig json.RawMessage `json:"multiRegionConfig"`
+						} `json:"deploy"`
+					} `json:"serviceManifest"`
 				} `json:"meta"`
 			} `json:"latestDeployment"`
 		} `json:"serviceInstance"`
@@ -125,7 +135,7 @@ func (c *Client) ServiceInstance(ctx context.Context, serviceID, environmentID s
 	}
 
 	si := out.ServiceInstance
-	inst := ServiceInstance{NumReplicas: si.NumReplicas, Region: si.Region}
+	var inst ServiceInstance
 	if si.Source != nil && si.Source.Image != nil {
 		inst.Image = *si.Source.Image
 	}
@@ -133,9 +143,25 @@ func (c *Client) ServiceInstance(ctx context.Context, serviceID, environmentID s
 		inst.LatestDeployment = &Deployment{ID: d.ID, Status: d.Status}
 		if d.Meta != nil {
 			inst.LatestDeployment.Image = d.Meta.Image
+			if m := d.Meta.ServiceManifest; m != nil && m.Deploy != nil && hasRegions(m.Deploy.MultiRegionConfig) {
+				inst.MultiRegionConfig = m.Deploy.MultiRegionConfig
+			}
 		}
 	}
+	if inst.MultiRegionConfig == nil && si.NumReplicas != nil && si.Region != nil {
+		cfg, err := json.Marshal(map[string]any{*si.Region: map[string]int{"numReplicas": *si.NumReplicas}})
+		if err != nil {
+			return ServiceInstance{}, err
+		}
+		inst.MultiRegionConfig = cfg
+	}
 	return inst, nil
+}
+
+// hasRegions reports whether a multi-region config names at least one region.
+func hasRegions(cfg json.RawMessage) bool {
+	var regions map[string]json.RawMessage
+	return json.Unmarshal(cfg, &regions) == nil && len(regions) > 0
 }
 
 // UpdateSource points a service instance at an image. It doesn't deploy.
@@ -147,14 +173,16 @@ func (c *Client) UpdateSource(ctx context.Context, u SourceUpdate) error {
 		Image string `json:"image"`
 	}
 	type input struct {
-		Source      source `json:"source"`
-		NumReplicas int    `json:"numReplicas"`
-		Region      string `json:"region"`
+		Source            source          `json:"source"`
+		MultiRegionConfig json.RawMessage `json:"multiRegionConfig"`
+	}
+	if !hasRegions(u.MultiRegionConfig) {
+		return errors.New("update source: no multi-region config to send")
 	}
 	vars := map[string]any{
 		"serviceId":     u.ServiceID,
 		"environmentId": u.EnvironmentID,
-		"input":         input{Source: source{Image: u.Image}, NumReplicas: u.NumReplicas, Region: u.Region},
+		"input":         input{Source: source{Image: u.Image}, MultiRegionConfig: u.MultiRegionConfig},
 	}
 	return c.do(ctx, q, vars, nil)
 }

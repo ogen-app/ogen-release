@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -34,16 +35,15 @@ type fakeRailway struct {
 // instance is a service instance running image, with 1 replica in us-west2.
 func instance(image string) railway.ServiceInstance {
 	return railway.ServiceInstance{
-		Image:            image,
-		NumReplicas:      new(1),
-		Region:           new("us-west2"),
-		LatestDeployment: &railway.Deployment{ID: "old", Status: railway.StatusSuccess, Image: image},
+		Image:             image,
+		LatestDeployment:  &railway.Deployment{ID: "old", Status: railway.StatusSuccess, Image: image},
+		MultiRegionConfig: json.RawMessage(`{"us-west2":{"numReplicas":1}}`),
 	}
 }
 
 func newFake() *fakeRailway {
 	api := instance("ghcr.io/ogen-app/ogen:1551")
-	api.NumReplicas, api.Region = new(2), new("europe-west4")
+	api.MultiRegionConfig = json.RawMessage(`{"europe-west4-drams3a":{"numReplicas":2}}`)
 	return &fakeRailway{
 		token: railway.ProjectToken{ProjectID: "proj", EnvironmentID: "env-dev"},
 		instances: map[string]railway.ServiceInstance{
@@ -121,8 +121,8 @@ func TestDeployOnlyChangedServices(t *testing.T) {
 	if u.Image != "ghcr.io/ogen-app/ogen:1552" || u.EnvironmentID != "env-dev" {
 		t.Errorf("update = %+v", u)
 	}
-	if u.NumReplicas != 2 || u.Region != "europe-west4" {
-		t.Errorf("replicas/region not passed through: %+v", u)
+	if string(u.MultiRegionConfig) != `{"europe-west4-drams3a":{"numReplicas":2}}` {
+		t.Errorf("multi-region config not passed through: %s", u.MultiRegionConfig)
 	}
 	if v := api.vars[0]; v.Name != "SENTRY_RELEASE" || v.Value != "api@1552" || v.ProjectID != "proj" {
 		t.Errorf("variable = %+v", v)
@@ -168,24 +168,17 @@ func TestDeployComparesTheRunningImage(t *testing.T) {
 }
 
 func TestDeployRefusesUnknownReplicasOrRegion(t *testing.T) {
-	for name, clear := range map[string]func(*railway.ServiceInstance){
-		"replicas": func(i *railway.ServiceInstance) { i.NumReplicas = nil },
-		"region":   func(i *railway.ServiceInstance) { i.Region = nil },
-	} {
-		t.Run(name, func(t *testing.T) {
-			api := newFake()
-			inst := api.instances["svc-api"]
-			clear(&inst)
-			api.instances["svc-api"] = inst
+	api := newFake()
+	inst := api.instances["svc-api"]
+	inst.MultiRegionConfig = nil
+	api.instances["svc-api"] = inst
 
-			err := deploy(t.Context(), api, parse(t), opts("development"))
-			if err == nil || !strings.Contains(err.Error(), "no replicas or region") {
-				t.Fatalf("err = %v", err)
-			}
-			if slices.Contains(api.calls, "update svc-api") {
-				t.Error("updated the instance anyway")
-			}
-		})
+	err := deploy(t.Context(), api, parse(t), opts("development"))
+	if err == nil || !strings.Contains(err.Error(), "no replicas or region") {
+		t.Fatalf("err = %v", err)
+	}
+	if slices.Contains(api.calls, "update svc-api") {
+		t.Error("updated the instance anyway")
 	}
 }
 
