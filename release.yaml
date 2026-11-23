@@ -10,10 +10,10 @@ services:
     image: ghcr.io/ogen-app/ogen
     build: 1551
     repo: ogen-app/ogen
-    railwayServiceId: ""
+    railwayServiceId: "93fba1b2-580e-45fa-9321-11bfee4a0d84"
 
 environments:
   development:
-    railwayEnvironmentId: ""
+    railwayEnvironmentId: "dc53673a-5972-4043-a287-9fe7028f9ecf"
   production:
-    railwayEnvironmentId: ""
+    railwayEnvironmentId: "25ed96ed-a195-4cb1-bbd0-126877dd8c8f"
