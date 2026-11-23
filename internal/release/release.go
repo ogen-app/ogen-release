@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"unicode/utf8"
 
@@ -14,11 +15,15 @@ import (
 
 // Service is one service pinned in release.yaml.
 type Service struct {
-	Name             string
-	Image            string // repository without a tag, e.g. ghcr.io/ogen-app/ogen
-	Build            int
-	Repo             string // GitHub owner/name
-	RailwayServiceID string
+	Name  string
+	Image string // repository without a tag, e.g. ghcr.io/ogen-app/ogen
+	Build int
+	Repo  string // GitHub owner/name
+
+	// RailwayServiceIDs are the Railway services that run this image, in
+	// deploy order. Most entries have one (railwayServiceId); river-service
+	// runs one image as two (railwayServiceIds), and one bump moves both.
+	RailwayServiceIDs []string
 }
 
 // ImageRef is the image with its build tag, the source a Railway service
@@ -52,10 +57,35 @@ type rawFile struct {
 }
 
 type rawService struct {
-	Image            string `yaml:"image"`
-	Build            int    `yaml:"build"`
-	Repo             string `yaml:"repo"`
-	RailwayServiceID string `yaml:"railwayServiceId"`
+	Image             string   `yaml:"image"`
+	Build             int      `yaml:"build"`
+	Repo              string   `yaml:"repo"`
+	RailwayServiceID  string   `yaml:"railwayServiceId"`
+	RailwayServiceIDs []string `yaml:"railwayServiceIds"`
+}
+
+// railwayServiceIDs returns the service's Railway ids from whichever of the
+// two keys is set. An empty railwayServiceId is allowed (it's how a service is
+// listed before onboarding) and gives no ids.
+func (rs rawService) railwayServiceIDs(name string) ([]string, error) {
+	if rs.RailwayServiceID != "" && len(rs.RailwayServiceIDs) > 0 {
+		return nil, fmt.Errorf("release.yaml: service %s: set railwayServiceId or railwayServiceIds, not both", name)
+	}
+	if len(rs.RailwayServiceIDs) == 0 {
+		if rs.RailwayServiceID == "" {
+			return nil, nil
+		}
+		return []string{rs.RailwayServiceID}, nil
+	}
+	for i, id := range rs.RailwayServiceIDs {
+		if id == "" {
+			return nil, fmt.Errorf("release.yaml: service %s: railwayServiceIds has an empty id", name)
+		}
+		if slices.Contains(rs.RailwayServiceIDs[:i], id) {
+			return nil, fmt.Errorf("release.yaml: service %s: railwayServiceIds lists %s twice", name, id)
+		}
+	}
+	return slices.Clone(rs.RailwayServiceIDs), nil
 }
 
 type rawEnvironment struct {
@@ -104,13 +134,17 @@ func Parse(data []byte) (*File, error) {
 		if build == nil {
 			return nil, fmt.Errorf("release.yaml: service %s: build is required", name)
 		}
+		ids, err := rs.railwayServiceIDs(name)
+		if err != nil {
+			return nil, err
+		}
 		f.buildPos[name] = position{build.Line, build.Column}
 		f.Services = append(f.Services, Service{
-			Name:             name,
-			Image:            rs.Image,
-			Build:            rs.Build,
-			Repo:             rs.Repo,
-			RailwayServiceID: rs.RailwayServiceID,
+			Name:              name,
+			Image:             rs.Image,
+			Build:             rs.Build,
+			Repo:              rs.Repo,
+			RailwayServiceIDs: ids,
 		})
 	}
 	for name, re := range raw.Environments {

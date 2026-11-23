@@ -58,43 +58,62 @@ func deploy(ctx context.Context, api railwayAPI, f *release.File, opts options) 
 	}
 
 	for _, svc := range f.Services {
-		if svc.RailwayServiceID == "" {
+		if len(svc.RailwayServiceIDs) == 0 {
 			return fmt.Errorf("%s: release.yaml has no railwayServiceId", svc.Name)
 		}
-		want := svc.ImageRef()
-
-		inst, err := api.ServiceInstance(ctx, svc.RailwayServiceID, env.RailwayEnvironmentID)
-		if err != nil {
-			return fmt.Errorf("%s: read service instance: %w", svc.Name, err)
+		// An entry whose image runs as several Railway services (river-service)
+		// deploys them one after another, each judged on its own state.
+		for i, serviceID := range svc.RailwayServiceIDs {
+			label := svc.Name
+			if n := len(svc.RailwayServiceIDs); n > 1 {
+				label = fmt.Sprintf("%s (%d of %d)", svc.Name, i+1, n)
+			}
+			if err := deployInstance(ctx, api, tok, env, svc, serviceID, label, opts); err != nil {
+				return err
+			}
 		}
-		if running(inst, want) {
-			opts.logf("%s: %s is running; nothing to do", svc.Name, want)
-			continue
-		}
-		opts.logf("%s: %s → %s (latest deployment: %s)", svc.Name, runningImage(inst), want, deploymentState(inst.LatestDeployment))
-		if inst.MultiRegionConfig == nil {
-			return fmt.Errorf("%s: Railway reports no replicas or region for the service instance; "+
-				"refusing to update it, since an update without them may reset them", svc.Name)
-		}
-		if opts.dryRun {
-			continue
-		}
-
-		if err := deployService(ctx, api, tok, env, svc, inst, opts); err != nil {
-			return fmt.Errorf("%s: %w", svc.Name, err)
-		}
-		opts.logf("%s: %s deployed", svc.Name, want)
 	}
 	return nil
 }
 
+// deployInstance brings one Railway service to svc's pinned image. label names
+// it in logs and errors without its Railway id.
+func deployInstance(ctx context.Context, api railwayAPI, tok railway.ProjectToken, env release.Environment,
+	svc release.Service, serviceID, label string, opts options,
+) error {
+	want := svc.ImageRef()
+
+	inst, err := api.ServiceInstance(ctx, serviceID, env.RailwayEnvironmentID)
+	if err != nil {
+		return fmt.Errorf("%s: read service instance: %w", label, err)
+	}
+	if running(inst, want) {
+		opts.logf("%s: %s is running; nothing to do", label, want)
+		return nil
+	}
+	opts.logf("%s: %s → %s (latest deployment: %s)", label, runningImage(inst), want, deploymentState(inst.LatestDeployment))
+	if inst.MultiRegionConfig == nil {
+		return fmt.Errorf("%s: Railway reports no replicas or region for the service instance; "+
+			"refusing to update it, since an update without them may reset them", label)
+	}
+	if opts.dryRun {
+		return nil
+	}
+
+	if err := deployService(ctx, api, tok, env, svc, serviceID, label, inst, opts); err != nil {
+		return fmt.Errorf("%s: %w", label, err)
+	}
+	opts.logf("%s: %s deployed", label, want)
+	return nil
+}
+
 func deployService(ctx context.Context, api railwayAPI, tok railway.ProjectToken, env release.Environment,
-	svc release.Service, inst railway.ServiceInstance, opts options,
+	svc release.Service, serviceID, label string, inst railway.ServiceInstance, opts options,
 ) error {
 	err := api.UpsertVariable(ctx, railway.Variable{
 		ProjectID:     tok.ProjectID,
 		EnvironmentID: env.RailwayEnvironmentID,
-		ServiceID:     svc.RailwayServiceID,
+		ServiceID:     serviceID,
 		Name:          "SENTRY_RELEASE",
 		Value:         svc.Name + "@" + strconv.Itoa(svc.Build),
 	})
@@ -103,7 +122,7 @@ func deployService(ctx context.Context, api railwayAPI, tok railway.ProjectToken
 	}
 
 	err = api.UpdateSource(ctx, railway.SourceUpdate{
-		ServiceID:         svc.RailwayServiceID,
+		ServiceID:         serviceID,
 		EnvironmentID:     env.RailwayEnvironmentID,
 		Image:             svc.ImageRef(),
 		MultiRegionConfig: inst.MultiRegionConfig,
@@ -112,12 +131,12 @@ func deployService(ctx context.Context, api railwayAPI, tok railway.ProjectToken
 		return fmt.Errorf("update source: %w", err)
 	}
 
-	id, err := api.Deploy(ctx, svc.RailwayServiceID, env.RailwayEnvironmentID)
+	id, err := api.Deploy(ctx, serviceID, env.RailwayEnvironmentID)
 	if err != nil {
 		return fmt.Errorf("start deployment: %w", err)
 	}
-	opts.logf("%s: deployment started", svc.Name)
-	return wait(ctx, api, svc.Name, id, opts)
+	opts.logf("%s: deployment started", label)
+	return wait(ctx, api, label, id, opts)
 }
 
 // wait polls a deployment until it succeeds, fails, or times out.

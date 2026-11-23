@@ -42,10 +42,12 @@ reviews:
         Services are listed in deploy order: sidecars, river-service, api,
         harbor, ui. Flag a reordering, a build lowered without a stated
         rollback reason, an image outside ghcr.io/ogen-app, or a
-        railwayServiceId / railwayEnvironmentId that changes from one non-empty
-        value to another (that retargets a deploy). Filling an empty id is how
-        a service or environment is onboarded and needs no flag; cmd/deploy
-        --dry-run verifies the ids against Railway.
+        railwayServiceId / railwayServiceIds / railwayEnvironmentId that changes
+        from one non-empty value to another, or a railwayServiceIds list whose
+        ids are removed or reordered (that retargets a deploy). Filling an empty
+        id, or adding the first ids, is how a service or environment is
+        onboarded and needs no flag; cmd/deploy --dry-run verifies the ids
+        against Railway.
     - path: "cmd/deploy/**/*.go"
       instructions: >-
         Railway is the truth for what's deployed (D7): a service is skipped
@@ -65,7 +67,9 @@ reviews:
     - path: "cmd/bump/**/*.go"
       instructions: >-
         A build at or below the pinned one must be a no-op (exit 0, file
-        untouched): dispatches aren't ordered and may be replayed. Bad input
+        untouched): dispatches aren't ordered and may be replayed. So is a
+        service release.yaml doesn't list: its repo may publish before it is
+        onboarded. Bad input
         must fail before release.yaml is written. A bump must change only the
         one build value so the commit is a one-line diff.
     - path: "cmd/smoke/**/*.go"

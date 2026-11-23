@@ -3,7 +3,8 @@
 // It is the body of .github/workflows/bump.yml: service CI dispatches
 // `bump {service, build, revision}` after pushing an image, and this command
 // writes the new build. Dispatches aren't ordered, so a build at or below the
-// pinned one is ignored; a late or replayed dispatch never downgrades.
+// pinned one is ignored; a late or replayed dispatch never downgrades. So is a
+// service release.yaml doesn't list yet.
 //
 // On a bump it prints the commit message to stdout. On a no-op it prints
 // nothing to stdout and exits 0.
@@ -54,9 +55,13 @@ func run(file, service string, build int, revision string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// A repo publishes and dispatches before its service joins release.yaml
+	// (ui until its image can run in production), so an unlisted service is a
+	// no-op, not a failed run on every merge there.
 	svc, ok := f.Service(service)
 	if !ok {
-		return "", fmt.Errorf("unknown service %q", service)
+		log.Printf("%s is not in release.yaml; nothing to do", service)
+		return "", nil
 	}
 	if build <= svc.Build {
 		log.Printf("%s: build %d is not newer than pinned %d; nothing to do", service, build, svc.Build)

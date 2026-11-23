@@ -2,6 +2,7 @@ package release
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -43,7 +44,7 @@ func TestParse(t *testing.T) {
 	if !ok {
 		t.Fatal("api not found")
 	}
-	if api.Build != 1551 || api.RailwayServiceID != "svc-api" || api.Repo != "ogen-app/ogen" {
+	if api.Build != 1551 || !slices.Equal(api.RailwayServiceIDs, []string{"svc-api"}) || api.Repo != "ogen-app/ogen" {
 		t.Errorf("api = %+v", api)
 	}
 	if got, want := api.ImageRef(), "ghcr.io/ogen-app/ogen:1551"; got != want {
@@ -63,10 +64,41 @@ func TestParseErrors(t *testing.T) {
 		"missing build": "services:\n  api: { image: i, repo: r }\n",
 		"negative":      "services:\n  api: { image: i, build: -1, repo: r }\n",
 		"not a number":  "services:\n  api: { image: i, build: abc, repo: r }\n",
+		"both id keys":  "services:\n  api: { image: i, build: 1, repo: r, railwayServiceId: a, railwayServiceIds: [b] }\n",
+		"empty id":      "services:\n  api: { image: i, build: 1, repo: r, railwayServiceIds: [a, \"\"] }\n",
+		"duplicate id":  "services:\n  api: { image: i, build: 1, repo: r, railwayServiceIds: [a, a] }\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Parse([]byte(data)); err == nil {
 				t.Error("want error")
+			}
+		})
+	}
+}
+
+func TestParseRailwayServiceIDs(t *testing.T) {
+	for name, tc := range map[string]struct {
+		entry string
+		want  []string
+	}{
+		"one id":         {"railwayServiceId: a", []string{"a"}},
+		"several ids":    {"railwayServiceIds: [light, heavy]", []string{"light", "heavy"}},
+		"empty id":       {`railwayServiceId: ""`, nil},
+		"no id":          {"", nil},
+		"empty list":     {"railwayServiceIds: []", nil},
+		"empty id, list": {`railwayServiceId: "", railwayServiceIds: [a]`, []string{"a"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			entry := "image: i, build: 1, repo: r"
+			if tc.entry != "" {
+				entry += ", " + tc.entry
+			}
+			f, err := Parse([]byte("services:\n  river-service: { " + entry + " }\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := f.Services[0].RailwayServiceIDs; !slices.Equal(got, tc.want) {
+				t.Errorf("RailwayServiceIDs = %q, want %q", got, tc.want)
 			}
 		})
 	}
