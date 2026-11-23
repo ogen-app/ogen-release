@@ -112,6 +112,23 @@ func TestSetBuild(t *testing.T) {
 	}
 }
 
+// yaml.v3 reports columns in characters; a non-ASCII prefix on the build's
+// line must not shift the edit onto another value.
+func TestSetBuildAfterNonASCII(t *testing.T) {
+	data := "services:\n  ééééééééééééé: { image: i, repo: ogen-app/12345, build: 100 }\n"
+	f, err := Parse([]byte(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.SetBuild("ééééééééééééé", 101)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := strings.Replace(data, "build: 100", "build: 101", 1); string(out) != want {
+		t.Errorf("got %q, want %q", out, want)
+	}
+}
+
 // The committed release.yaml must always parse.
 func TestRepoReleaseYAML(t *testing.T) {
 	data, err := os.ReadFile("../../release.yaml")

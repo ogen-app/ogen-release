@@ -28,14 +28,14 @@ func serve(t *testing.T, handler func(vars map[string]any) string) *Client {
 
 func TestServiceInstance(t *testing.T) {
 	c := serve(t, func(map[string]any) string {
-		return `{"data":{"serviceInstance":{"source":{"image":"ghcr.io/ogen-app/ogen:1551"},"numReplicas":2,"region":"europe-west4","latestDeployment":{"id":"d1","status":"SUCCESS"}}}}`
+		return `{"data":{"serviceInstance":{"source":{"image":"ghcr.io/ogen-app/ogen:1551"},"numReplicas":2,"region":"europe-west4","latestDeployment":{"id":"d1","status":"SUCCESS","meta":{"image":"ghcr.io/ogen-app/ogen:1550","reason":"deploy"}}}}}`
 	})
 	inst, err := c.ServiceInstance(t.Context(), "svc", "env")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if inst.Image != "ghcr.io/ogen-app/ogen:1551" || *inst.NumReplicas != 2 || *inst.Region != "europe-west4" ||
-		inst.LatestDeployment.Status != StatusSuccess {
+		inst.LatestDeployment.Status != StatusSuccess || inst.LatestDeployment.Image != "ghcr.io/ogen-app/ogen:1550" {
 		t.Errorf("instance = %+v", inst)
 	}
 }
@@ -53,22 +53,17 @@ func TestServiceInstanceRepoSource(t *testing.T) {
 	}
 }
 
-func TestUpdateSourceOmitsUnsetReplicasAndRegion(t *testing.T) {
+func TestUpdateSourceSendsReplicasAndRegion(t *testing.T) {
 	var input map[string]any
 	c := serve(t, func(vars map[string]any) string {
 		input = vars["input"].(map[string]any)
 		return `{"data":{"serviceInstanceUpdate":true}}`
 	})
-	if err := c.UpdateSource(t.Context(), SourceUpdate{ServiceID: "s", EnvironmentID: "e", Image: "img:1"}); err != nil {
+	u := SourceUpdate{ServiceID: "s", EnvironmentID: "e", Image: "img:1", NumReplicas: 1, Region: "us-west2"}
+	if err := c.UpdateSource(t.Context(), u); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := input["numReplicas"]; ok {
-		t.Error("numReplicas sent")
-	}
-	if _, ok := input["region"]; ok {
-		t.Error("region sent")
-	}
-	if input["source"].(map[string]any)["image"] != "img:1" {
+	if input["numReplicas"] != 1.0 || input["region"] != "us-west2" || input["source"].(map[string]any)["image"] != "img:1" {
 		t.Errorf("input = %v", input)
 	}
 }

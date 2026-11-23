@@ -87,25 +87,46 @@ func newSmoke(baseURL, device string) (*smoke, error) {
 	return &smoke{base: base, http: &http.Client{Jar: jar, Timeout: 30 * time.Second}}, nil
 }
 
-func (s *smoke) run(ctx context.Context, email, password string) error {
-	steps := []struct {
+// cleanupTimeout bounds each cleanup call. Cleanup gets its own context, so it
+// still runs when a failed step used up the run's deadline.
+const cleanupTimeout = 30 * time.Second
+
+func (s *smoke) run(ctx context.Context, email, password string) (err error) {
+	if err := s.step(ctx, "health", s.health); err != nil {
+		return err
+	}
+	signIn := func(ctx context.Context) error { return s.signIn(ctx, email, password) }
+	if err := s.step(ctx, "sign in", signIn); err != nil {
+		return err
+	}
+	// Sign out however the checks below end, and report a failed sign-out.
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		defer cancel()
+		err = errors.Join(err, s.step(ctx, "sign out", s.signOut))
+	}()
+
+	for _, st := range []struct {
 		name string
 		fn   func(context.Context) error
 	}{
-		{"health", s.health},
-		{"sign in", func(ctx context.Context) error { return s.signIn(ctx, email, password) }},
 		{"list campaigns", s.listCampaigns},
 		{"event stream", s.events},
 		{"upload asset", s.uploadAndDelete},
-		{"sign out", s.signOut},
-	}
-	for _, step := range steps {
-		start := time.Now()
-		if err := step.fn(ctx); err != nil {
-			return fmt.Errorf("%s: %w", step.name, err)
+	} {
+		if err := s.step(ctx, st.name, st.fn); err != nil {
+			return err
 		}
-		log.Printf("ok  %-15s %s", step.name, time.Since(start).Round(time.Millisecond))
 	}
+	return nil
+}
+
+func (s *smoke) step(ctx context.Context, name string, fn func(context.Context) error) error {
+	start := time.Now()
+	if err := fn(ctx); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	log.Printf("ok  %-15s %s", name, time.Since(start).Round(time.Millisecond))
 	return nil
 }
 
@@ -233,14 +254,19 @@ func (s *smoke) uploadAndDelete(ctx context.Context) error {
 		return fmt.Errorf("upload %s: %s %s", r.Status, r.Code, r.Error)
 	}
 
-	// Storage can fail transiently (502); retry so smoke runs don't pile up assets.
+	// Storage can fail transiently (502); retry so smoke runs don't pile up
+	// assets. The delete has its own deadline, so a slow upload can't use it up.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+	defer cancel()
 	path := "/api/content-bank/assets/" + url.PathEscape(r.AssetID)
 	var delErr error
-	for range 3 {
+	for attempt := range 3 {
+		if attempt > 0 {
+			time.Sleep(2 * time.Second)
+		}
 		if delErr = s.doJSON(ctx, http.MethodDelete, path, nil, http.StatusNoContent, nil); delErr == nil {
 			return nil
 		}
-		time.Sleep(2 * time.Second)
 	}
 	return fmt.Errorf("delete asset %s: %w", r.AssetID, delErr)
 }

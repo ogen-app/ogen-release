@@ -123,8 +123,13 @@ func TestSmokeFailsOnDegradedHealth(t *testing.T) {
 }
 
 func TestSmokeFailsOnFailedUpload(t *testing.T) {
-	err := runSmoke(t, &fakeAPI{health: "ok", upload: "failed"}, "")
+	api := &fakeAPI{health: "ok", upload: "failed"}
+	err := runSmoke(t, api, "")
 	if err == nil || !strings.Contains(err.Error(), "service_unavailable") {
 		t.Fatalf("err = %v", err)
+	}
+	// A failed check still signs out.
+	if got := api.calls[len(api.calls)-1]; got != "DELETE /api/sessions" {
+		t.Errorf("last call = %s, want sign-out", got)
 	}
 }

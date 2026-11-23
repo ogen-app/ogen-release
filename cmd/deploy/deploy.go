@@ -34,9 +34,13 @@ type options struct {
 const maxPollErrors = 5
 
 // deploy brings every service in env to the build release.yaml pins, in file
-// order. Railway is the truth for what runs (D7): a service is deployed when
-// its instance's image differs from release.yaml, or its latest deployment
-// isn't healthy. The first failure stops the chain.
+// order. Railway is the truth for what runs (D7): a service is skipped only
+// when its latest deployment is healthy and runs the pinned image, so a source
+// update whose deploy never happened, or a manual rollback, is caught on the
+// next run. The first failure stops the chain.
+//
+// Logs are public (the repo is public), so they name services and images but
+// no Railway deployment ids.
 func deploy(ctx context.Context, api railwayAPI, f *release.File, opts options) error {
 	env, ok := f.Environments[opts.env]
 	if !ok || env.RailwayEnvironmentID == "" {
@@ -63,11 +67,15 @@ func deploy(ctx context.Context, api railwayAPI, f *release.File, opts options) 
 		if err != nil {
 			return fmt.Errorf("%s: read service instance: %w", svc.Name, err)
 		}
-		if inst.Image == want && healthy(inst.LatestDeployment) {
+		if running(inst, want) {
 			opts.logf("%s: %s is running; nothing to do", svc.Name, want)
 			continue
 		}
-		opts.logf("%s: %s → %s (latest deployment: %s)", svc.Name, orNone(inst.Image), want, deploymentState(inst.LatestDeployment))
+		opts.logf("%s: %s → %s (latest deployment: %s)", svc.Name, runningImage(inst), want, deploymentState(inst.LatestDeployment))
+		if inst.NumReplicas == nil || inst.Region == nil {
+			return fmt.Errorf("%s: Railway reports no replicas or region for the service instance; "+
+				"refusing to update it, since an update without them may reset them", svc.Name)
+		}
 		if opts.dryRun {
 			continue
 		}
@@ -98,8 +106,8 @@ func deployService(ctx context.Context, api railwayAPI, tok railway.ProjectToken
 		ServiceID:     svc.RailwayServiceID,
 		EnvironmentID: env.RailwayEnvironmentID,
 		Image:         svc.ImageRef(),
-		NumReplicas:   inst.NumReplicas,
-		Region:        inst.Region,
+		NumReplicas:   *inst.NumReplicas,
+		Region:        *inst.Region,
 	})
 	if err != nil {
 		return fmt.Errorf("update source: %w", err)
@@ -109,14 +117,14 @@ func deployService(ctx context.Context, api railwayAPI, tok railway.ProjectToken
 	if err != nil {
 		return fmt.Errorf("start deployment: %w", err)
 	}
-	opts.logf("%s: deployment %s started", svc.Name, id)
-	return wait(ctx, api, id, opts)
+	opts.logf("%s: deployment started", svc.Name)
+	return wait(ctx, api, svc.Name, id, opts)
 }
 
 // wait polls a deployment until it succeeds, fails, or times out.
-func wait(ctx context.Context, api railwayAPI, id string, opts options) error {
+func wait(ctx context.Context, api railwayAPI, name, id string, opts options) error {
 	ctx, cancel := context.WithTimeoutCause(ctx, opts.timeout,
-		fmt.Errorf("deployment %s not done after %s", id, opts.timeout))
+		fmt.Errorf("deployment not done after %s", opts.timeout))
 	defer cancel()
 
 	var last string
@@ -127,20 +135,20 @@ func wait(ctx context.Context, api railwayAPI, id string, opts options) error {
 		case err != nil && ctx.Err() == nil:
 			pollErrors++
 			if pollErrors >= maxPollErrors {
-				return fmt.Errorf("poll deployment %s: %w", id, err)
+				return fmt.Errorf("poll deployment: %w", err)
 			}
-			opts.logf("poll deployment %s: %v (retrying)", id, err)
+			opts.logf("%s: poll deployment: %v (retrying)", name, err)
 		case err == nil:
 			pollErrors = 0
 			if status != last {
-				opts.logf("deployment %s: %s", id, status)
+				opts.logf("%s: deployment %s", name, status)
 				last = status
 			}
 			switch status {
 			case railway.StatusSuccess:
 				return nil
 			case railway.StatusFailed, railway.StatusCrashed, railway.StatusRemoved, railway.StatusSkipped:
-				return fmt.Errorf("deployment %s ended %s", id, status)
+				return fmt.Errorf("deployment ended %s", status)
 			}
 		}
 
@@ -155,8 +163,24 @@ func wait(ctx context.Context, api railwayAPI, id string, opts options) error {
 	}
 }
 
-func healthy(d *railway.Deployment) bool {
-	return d != nil && (d.Status == railway.StatusSuccess || d.Status == railway.StatusSleeping)
+// running reports whether the instance is configured for want and its latest
+// deployment is healthy and runs want. The configured image alone isn't proof:
+// it changes before the deploy does. A deployment whose image Railway doesn't
+// report counts as not running want, which redeploys rather than skips.
+func running(inst railway.ServiceInstance, want string) bool {
+	d := inst.LatestDeployment
+	return inst.Image == want && d != nil && d.Image == want &&
+		(d.Status == railway.StatusSuccess || d.Status == railway.StatusSleeping)
+}
+
+func runningImage(inst railway.ServiceInstance) string {
+	if d := inst.LatestDeployment; d != nil && d.Image != "" {
+		return d.Image
+	}
+	if inst.Image != "" {
+		return inst.Image + " (configured)"
+	}
+	return "(no image)"
 }
 
 func deploymentState(d *railway.Deployment) string {
@@ -164,11 +188,4 @@ func deploymentState(d *railway.Deployment) string {
 		return "none"
 	}
 	return d.Status
-}
-
-func orNone(s string) string {
-	if s == "" {
-		return "(no image)"
-	}
-	return s
 }

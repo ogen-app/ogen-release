@@ -49,6 +49,7 @@ type ProjectToken struct {
 type Deployment struct {
 	ID     string
 	Status string
+	Image  string // the image it runs, from its meta; empty if Railway didn't say
 }
 
 // ServiceInstance is a service's configuration in one environment.
@@ -60,13 +61,13 @@ type ServiceInstance struct {
 }
 
 // SourceUpdate changes a service instance's source image. Replicas and region
-// are sent with it because Railway is reported to reset them otherwise.
+// are always sent with it because Railway is reported to reset them otherwise.
 type SourceUpdate struct {
 	ServiceID     string
 	EnvironmentID string
 	Image         string
-	NumReplicas   *int
-	Region        *string
+	NumReplicas   int
+	Region        string
 }
 
 // Variable is a service variable to set.
@@ -99,7 +100,7 @@ func (c *Client) ServiceInstance(ctx context.Context, serviceID, environmentID s
     source { image }
     numReplicas
     region
-    latestDeployment { id status }
+    latestDeployment { id status meta }
   }
 }`
 	var out struct {
@@ -112,6 +113,9 @@ func (c *Client) ServiceInstance(ctx context.Context, serviceID, environmentID s
 			LatestDeployment *struct {
 				ID     string `json:"id"`
 				Status string `json:"status"`
+				Meta   *struct {
+					Image string `json:"image"`
+				} `json:"meta"`
 			} `json:"latestDeployment"`
 		} `json:"serviceInstance"`
 	}
@@ -127,6 +131,9 @@ func (c *Client) ServiceInstance(ctx context.Context, serviceID, environmentID s
 	}
 	if d := si.LatestDeployment; d != nil {
 		inst.LatestDeployment = &Deployment{ID: d.ID, Status: d.Status}
+		if d.Meta != nil {
+			inst.LatestDeployment.Image = d.Meta.Image
+		}
 	}
 	return inst, nil
 }
@@ -140,9 +147,9 @@ func (c *Client) UpdateSource(ctx context.Context, u SourceUpdate) error {
 		Image string `json:"image"`
 	}
 	type input struct {
-		Source      source  `json:"source"`
-		NumReplicas *int    `json:"numReplicas,omitempty"`
-		Region      *string `json:"region,omitempty"`
+		Source      source `json:"source"`
+		NumReplicas int    `json:"numReplicas"`
+		Region      string `json:"region"`
 	}
 	vars := map[string]any{
 		"serviceId":     u.ServiceID,
