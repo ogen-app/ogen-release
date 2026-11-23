@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -170,7 +171,7 @@ func mappingValue(m *yaml.Node, key string) *yaml.Node {
 }
 
 // offset converts a 1-based line and column to a byte offset in data. yaml.v3
-// counts columns in runes; release.yaml is ASCII up to any build value.
+// counts columns in characters, not bytes, so the column is walked as UTF-8.
 func offset(data []byte, pos position) int {
 	off := 0
 	for range pos.line - 1 {
@@ -180,7 +181,14 @@ func offset(data []byte, pos position) int {
 		}
 		off += i + 1
 	}
-	return off + pos.column - 1
+	for range pos.column - 1 {
+		if off >= len(data) {
+			break
+		}
+		_, size := utf8.DecodeRune(data[off:])
+		off += size
+	}
+	return off
 }
 
 func isScalarByte(b byte) bool {

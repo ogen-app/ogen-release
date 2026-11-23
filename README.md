@@ -28,9 +28,10 @@ RAILWAY_TOKEN=<project token scoped to the environment> \
   go run ./cmd/deploy --env development [--ref <git ref>] [--dry-run]
 ```
 
-Railway is the truth for what runs: a service is deployed when its instance's
-image differs from `release.yaml`, or its latest deployment isn't healthy. For
-each such service, in file order, it sets `SENTRY_RELEASE=<service>@<build>`,
+Railway is the truth for what runs: a service is skipped only when its latest
+deployment is healthy and runs the pinned image, so a deploy that never
+happened or a manual rollback in Railway is caught on the next run. For every
+other service, in file order, it sets `SENTRY_RELEASE=<service>@<build>`,
 points the instance at the image (keeping replicas and region), deploys, and
 waits for `SUCCESS`. A failed, crashed or timed-out deployment stops the chain.
 

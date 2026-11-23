@@ -31,14 +31,25 @@ type fakeRailway struct {
 	vars      []railway.Variable
 }
 
+// instance is a service instance running image, with 1 replica in us-west2.
+func instance(image string) railway.ServiceInstance {
+	return railway.ServiceInstance{
+		Image:            image,
+		NumReplicas:      new(1),
+		Region:           new("us-west2"),
+		LatestDeployment: &railway.Deployment{ID: "old", Status: railway.StatusSuccess, Image: image},
+	}
+}
+
 func newFake() *fakeRailway {
-	ok := &railway.Deployment{ID: "old", Status: railway.StatusSuccess}
+	api := instance("ghcr.io/ogen-app/ogen:1551")
+	api.NumReplicas, api.Region = new(2), new("europe-west4")
 	return &fakeRailway{
 		token: railway.ProjectToken{ProjectID: "proj", EnvironmentID: "env-dev"},
 		instances: map[string]railway.ServiceInstance{
-			"svc-pdf": {Image: "ghcr.io/ogen-app/pdf-service:7", LatestDeployment: ok},
-			"svc-api": {Image: "ghcr.io/ogen-app/ogen:1551", LatestDeployment: ok, NumReplicas: new(2), Region: new("europe-west4")},
-			"svc-ui":  {Image: "ghcr.io/ogen-app/ui:99", LatestDeployment: ok},
+			"svc-pdf": instance("ghcr.io/ogen-app/pdf-service:7"),
+			"svc-api": api,
+			"svc-ui":  instance("ghcr.io/ogen-app/ui:99"),
 		},
 		statuses: map[string][]string{},
 	}
@@ -110,7 +121,7 @@ func TestDeployOnlyChangedServices(t *testing.T) {
 	if u.Image != "ghcr.io/ogen-app/ogen:1552" || u.EnvironmentID != "env-dev" {
 		t.Errorf("update = %+v", u)
 	}
-	if u.NumReplicas == nil || *u.NumReplicas != 2 || u.Region == nil || *u.Region != "europe-west4" {
+	if u.NumReplicas != 2 || u.Region != "europe-west4" {
 		t.Errorf("replicas/region not passed through: %+v", u)
 	}
 	if v := api.vars[0]; v.Name != "SENTRY_RELEASE" || v.Value != "api@1552" || v.ProjectID != "proj" {
@@ -129,6 +140,52 @@ func TestDeployRedeploysUnhealthyService(t *testing.T) {
 	}
 	if !slices.Contains(api.calls, "deploy svc-pdf") {
 		t.Errorf("crashed service not redeployed: %v", api.calls)
+	}
+}
+
+// A source update whose deploy never ran leaves the configured image equal to
+// the pin while the old build still runs; so does a manual rollback. Both must
+// redeploy, as must a deployment whose image Railway doesn't report.
+func TestDeployComparesTheRunningImage(t *testing.T) {
+	for name, running := range map[string]string{
+		"older build running": "ghcr.io/ogen-app/pdf-service:6",
+		"image unknown":       "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			api := newFake()
+			inst := api.instances["svc-pdf"]
+			inst.LatestDeployment.Image = running
+			api.instances["svc-pdf"] = inst
+
+			if err := deploy(t.Context(), api, parse(t), opts("development")); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Contains(api.calls, "deploy svc-pdf") {
+				t.Errorf("svc-pdf not redeployed: %v", api.calls)
+			}
+		})
+	}
+}
+
+func TestDeployRefusesUnknownReplicasOrRegion(t *testing.T) {
+	for name, clear := range map[string]func(*railway.ServiceInstance){
+		"replicas": func(i *railway.ServiceInstance) { i.NumReplicas = nil },
+		"region":   func(i *railway.ServiceInstance) { i.Region = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			api := newFake()
+			inst := api.instances["svc-api"]
+			clear(&inst)
+			api.instances["svc-api"] = inst
+
+			err := deploy(t.Context(), api, parse(t), opts("development"))
+			if err == nil || !strings.Contains(err.Error(), "no replicas or region") {
+				t.Fatalf("err = %v", err)
+			}
+			if slices.Contains(api.calls, "update svc-api") {
+				t.Error("updated the instance anyway")
+			}
+		})
 	}
 }
 
