@@ -6,11 +6,49 @@
 #
 # Services are listed in deploy order.
 services:
+  pdf-service:
+    image: ghcr.io/ogen-app/pdf-service
+    build: 18
+    repo: ogen-app/pdf-service
+    railwayServiceId: "9de3575d-c5ec-4390-8abd-36935f0ac46f"
+  document-service:
+    image: ghcr.io/ogen-app/document-service
+    build: 10
+    repo: ogen-app/document-service
+    railwayServiceId: "efbabc04-163c-499d-b124-86c05b968a66"
+  image-service:
+    image: ghcr.io/ogen-app/image-service
+    build: 12
+    repo: ogen-app/image-service
+    railwayServiceId: "1240d256-ca21-4009-bfd0-01fd6cdf2512"
+  audio-service:
+    image: ghcr.io/ogen-app/audio-service
+    build: 15
+    repo: ogen-app/audio-service
+    railwayServiceId: "b81ca1ba-81b2-4520-a4b7-3e2402d33890"
+  video-service:
+    image: ghcr.io/ogen-app/video-service
+    build: 25
+    repo: ogen-app/video-service
+    railwayServiceId: "c2cac54b-d99c-406d-b18e-dde5d6512e84"
+  river-service:
+    image: ghcr.io/ogen-app/river-service
+    build: 37
+    repo: ogen-app/river-service
+    # One image, two Railway services: light queues, then heavy.
+    railwayServiceIds:
+      - "09426e16-9999-418e-a7e0-bbcb3b9d71d3"
+      - "a3ee20b2-a0d3-4912-8466-e78c22abd9a7"
   api:
     image: ghcr.io/ogen-app/ogen
     build: 1552
     repo: ogen-app/ogen
     railwayServiceId: "93fba1b2-580e-45fa-9321-11bfee4a0d84"
+  harbor:
+    image: ghcr.io/ogen-app/harbor
+    build: 242
+    repo: ogen-app/harbor
+    railwayServiceId: "2e9bcf39-1e57-4c64-8abb-884096fe7c4b"
 
 environments:
   development:
