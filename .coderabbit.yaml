@@ -1,0 +1,90 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit configuration for ogen-app/ogen-release (CON-515). The default
+# branch carries this file so it applies as the base config on every PR.
+language: en-US
+early_access: false
+tone_instructions: "Be terse. Skip preamble and pleasantries. State the issue, why it matters, and the fix. Prefer diffs over prose."
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  changed_files_summary: true
+  sequence_diagrams: true
+
+  path_filters:
+    - "!go.sum"
+    - "!CHANGELOG.md"
+
+  # Repo-specific review guidance: this repo deploys the product, so mistakes
+  # here ship to every environment.
+  path_instructions:
+    - path: ".github/workflows/**"
+      instructions: >-
+        The repo is public and its logs are public: flag any step that could
+        print a secret, token, cookie or Railway id beyond what's already in
+        release.yaml. repository_dispatch client_payload is untrusted: it must
+        reach a shell only through env and be validated by cmd/bump, never
+        inlined as ${{ }} in run: or used in a checkout ref. Pushes that must
+        trigger other workflows (bump commits) use the ogen-release-bot App
+        token, never GITHUB_TOKEN. Flag third-party actions not pinned to a
+        commit SHA. bump.yml must keep concurrency group bump with queue: max
+        so no dispatch is dropped; deploy workflows must never set
+        cancel-in-progress: true. The development-smoke status must be
+        reported on every outcome (if: always()), since the Release PR gate
+        depends on it.
+    - path: "release.yaml"
+      instructions: >-
+        Services are listed in deploy order: sidecars, river-service, api,
+        harbor, ui. Flag a reordering, a build lowered without a stated
+        rollback reason, an image outside ghcr.io/ogen-app, or a changed
+        railwayServiceId / railwayEnvironmentId.
+    - path: "cmd/deploy/**/*.go"
+      instructions: >-
+        Railway is the truth for what's deployed (D7): a service deploys when
+        its instance's image differs from release.yaml or its latest
+        deployment isn't healthy, never by diffing git history. Services
+        deploy one at a time in file order and the first failure, crash or
+        timeout stops the chain. The token must be checked against the target
+        environment before any mutation. SENTRY_RELEASE is set with
+        skipDeploys, and replicas and region are passed explicitly on every
+        source update.
+    - path: "internal/railway/**/*.go"
+      instructions: >-
+        All Railway GraphQL lives here. Check that GraphQL errors are surfaced
+        even on HTTP 200, that response bodies are size-limited, and that the
+        project token is sent as Project-Access-Token, never logged.
+    - path: "cmd/bump/**/*.go"
+      instructions: >-
+        A build at or below the pinned one must be a no-op (exit 0, file
+        untouched): dispatches aren't ordered and may be replayed. Bad input
+        must fail before release.yaml is written. A bump must change only the
+        one build value so the commit is a one-line diff.
+    - path: "cmd/smoke/**/*.go"
+      instructions: >-
+        The smoke test runs against shared environments on every deploy: it
+        must clean up anything it creates, never print credentials or cookies
+        unless --print-device-cookie is passed, and fail on a degraded health
+        status.
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    base_branches:
+      - main
+
+  tools:
+    golangci-lint:
+      enabled: true
+    actionlint:
+      enabled: true
+    gitleaks:
+      enabled: true
+
+chat:
+  auto_reply: true
