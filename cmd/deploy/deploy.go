@@ -72,7 +72,7 @@ func deploy(ctx context.Context, api railwayAPI, f *release.File, opts options) 
 			continue
 		}
 		opts.logf("%s: %s → %s (latest deployment: %s)", svc.Name, runningImage(inst), want, deploymentState(inst.LatestDeployment))
-		if inst.NumReplicas == nil || inst.Region == nil {
+		if inst.MultiRegionConfig == nil {
 			return fmt.Errorf("%s: Railway reports no replicas or region for the service instance; "+
 				"refusing to update it, since an update without them may reset them", svc.Name)
 		}
@@ -103,11 +103,10 @@ func deployService(ctx context.Context, api railwayAPI, tok railway.ProjectToken
 	}
 
 	err = api.UpdateSource(ctx, railway.SourceUpdate{
-		ServiceID:     svc.RailwayServiceID,
-		EnvironmentID: env.RailwayEnvironmentID,
-		Image:         svc.ImageRef(),
-		NumReplicas:   *inst.NumReplicas,
-		Region:        *inst.Region,
+		ServiceID:         svc.RailwayServiceID,
+		EnvironmentID:     env.RailwayEnvironmentID,
+		Image:             svc.ImageRef(),
+		MultiRegionConfig: inst.MultiRegionConfig,
 	})
 	if err != nil {
 		return fmt.Errorf("update source: %w", err)
