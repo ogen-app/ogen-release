@@ -47,14 +47,21 @@ func deploy(ctx context.Context, api railwayAPI, f *release.File, opts options) 
 		return fmt.Errorf("release.yaml has no railwayEnvironmentId for %s", opts.env)
 	}
 
-	// A token scoped to another environment would deploy there; refuse it.
+	// A token scoped to another environment would deploy there; refuse it. The
+	// error names the token's environment only if release.yaml lists it: the
+	// logs are public, and an id the token reveals stays out of them.
 	tok, err := api.ProjectToken(ctx)
 	if err != nil {
 		return fmt.Errorf("read project token: %w", err)
 	}
 	if tok.EnvironmentID != env.RailwayEnvironmentID {
-		return fmt.Errorf("the Railway token is scoped to environment %s, but %s is %s",
-			tok.EnvironmentID, opts.env, env.RailwayEnvironmentID)
+		scope := "an environment release.yaml doesn't list"
+		for name, e := range f.Environments {
+			if e.RailwayEnvironmentID != "" && e.RailwayEnvironmentID == tok.EnvironmentID {
+				scope = "the " + name + " environment"
+			}
+		}
+		return fmt.Errorf("the Railway token is scoped to %s, not %s; use the token for %s", scope, opts.env, opts.env)
 	}
 
 	for _, svc := range f.Services {

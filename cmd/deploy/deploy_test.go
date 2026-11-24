@@ -235,8 +235,25 @@ func TestDeployToleratesTransientPollErrors(t *testing.T) {
 func TestDeployRefusesTokenForAnotherEnvironment(t *testing.T) {
 	api := newFake()
 	err := deploy(t.Context(), api, parse(t), opts("production"))
-	if err == nil || !strings.Contains(err.Error(), "scoped to environment env-dev") {
+	if err == nil || !strings.Contains(err.Error(), "scoped to the development environment, not production") {
 		t.Fatalf("err = %v", err)
+	}
+	if len(api.calls) != 0 {
+		t.Errorf("calls = %v, want none", api.calls)
+	}
+}
+
+// The logs are public: a token for an environment release.yaml doesn't list
+// is refused without printing the id it revealed.
+func TestDeployRefusesUnknownTokenWithoutItsID(t *testing.T) {
+	api := newFake()
+	api.token.EnvironmentID = "env-secret-elsewhere"
+	err := deploy(t.Context(), api, parse(t), opts("development"))
+	if err == nil || !strings.Contains(err.Error(), "an environment release.yaml doesn't list") {
+		t.Fatalf("err = %v", err)
+	}
+	if strings.Contains(err.Error(), "env-secret-elsewhere") {
+		t.Errorf("error prints the token's environment id: %v", err)
 	}
 	if len(api.calls) != 0 {
 		t.Errorf("calls = %v, want none", api.calls)
