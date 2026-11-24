@@ -78,6 +78,20 @@ reviews:
         must clean up anything it creates, never print credentials or cookies
         unless --print-device-cookie is passed, and fail on a degraded health
         status.
+    - path: "cmd/release/**/*.go"
+      instructions: >-
+        Versions are plain integers (Ogen N, tag ogen-N), never semver. VERSION
+        holds the last released N. A release lists only builds that changed
+        since the previous release's release.yaml; with none changed, nothing is
+        written. Bad input must fail before VERSION or CHANGELOG.md is written,
+        and earlier CHANGELOG.md entries must survive unchanged.
+    - path: ".github/workflows/release*.yml"
+      instructions: >-
+        The Release PR is rebuilt from main on every push and pushed by the
+        ogen-release-bot App, never GITHUB_TOKEN (the gate would not run). The
+        release gate must mirror development-smoke from the main commit
+        release/next is built on, stay pending unless that commit is main's
+        head, ignore cross-repository PRs, and pass every other PR.
 
   auto_review:
     enabled: true

@@ -1,6 +1,6 @@
 # The product lock file: the build of every service that ships together.
 #
-# A push to main deploys development; a tag vN.0.0 (Ogen N) deploys production
+# A push to main deploys development; a release tag ogen-N deploys production
 # with the same images. Service CI bumps `build` through a `bump` dispatch
 # (.github/workflows/bump.yml); people change this file through PRs.
 #

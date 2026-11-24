@@ -8,8 +8,9 @@ workflows that deploy it. No service code lives here.
   services lists them all under `railwayServiceIds` (river-service: light, then
   heavy); one bump moves them all, and they deploy in that order.
 - A push to `main` deploys **development**, which is also staging.
-- A tag `vN.0.0` (**Ogen N**) deploys **production** after approval, with the
-  same images (phase 5, CON-520).
+- Releases are numbered **Ogen 1, Ogen 2, …**, tagged `ogen-N`. `VERSION` holds
+  the last released N (`0`: nothing released yet). A release deploys
+  **production** after approval, with the same images (CON-520).
 
 ## Flow
 
@@ -23,6 +24,17 @@ workflows that deploy it. No service code lives here.
 3. [`deploy-development.yml`](.github/workflows/deploy-development.yml) runs
    `cmd/deploy --env development`, then the smoke checks, and reports the
    result as the commit status `development-smoke`.
+4. [`release.yml`](.github/workflows/release.yml) runs `cmd/release pr` on the
+   same push. It rebuilds branch `release/next` from `main` with `VERSION` =
+   N+1 and the release's notes in `CHANGELOG.md`, and keeps one **"Release Ogen
+   N"** PR open listing every build that changed since `ogen-N`. With nothing
+   changed, it closes the PR.
+5. [`release-gate.yml`](.github/workflows/release-gate.yml) sets
+   `development-smoke` on PRs, since the `main` ruleset requires it: the
+   Release PR gets the result of the `main` commit it is built on, and only
+   while it is built on `main`'s head; any other PR passes, because it deploys
+   to development after merge. So a release always ships the `release.yaml`
+   development smoke-tested.
 
 ## `cmd/deploy`
 
