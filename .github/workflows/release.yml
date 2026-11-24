@@ -16,11 +16,13 @@ on:
       - main
   workflow_dispatch:
 
-# One run at a time; a waiting run may be replaced by a newer push, which
-# rebuilds the PR from the newer main anyway.
+# One run at a time, and every push gets its own run. queue: max keeps every
+# waiting run: by default a newer push would replace the run already waiting,
+# and if that run was a merged Release PR, Ogen N would never be published.
 concurrency:
   group: release
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read

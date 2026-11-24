@@ -46,6 +46,41 @@ func TestIssue(t *testing.T) {
 	}
 }
 
+// Labels on a later page still count: they decide the issue's section and
+// whether a release already marked it.
+func TestIssueReadsEveryLabelPage(t *testing.T) {
+	c := serve(t, func(_ string, vars map[string]any) string {
+		if vars["after"] == nil {
+			return `{"data":{"issue":{"id":"uuid-1","identifier":"CON-1","title":"t","url":"u",` +
+				`"labels":{"nodes":[{"name":"Infrastructure"}],"pageInfo":{"hasNextPage":true,"endCursor":"p2"}}}}}`
+		}
+		if vars["after"] != "p2" {
+			t.Errorf("after = %v", vars["after"])
+		}
+		return `{"data":{"issue":{"labels":{"nodes":[{"name":"Feature"},{"name":"Ogen 2"}],"pageInfo":{"hasNextPage":false}}}}}`
+	})
+	is, err := c.Issue(t.Context(), "CON-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !is.HasLabel("Infrastructure") || !is.HasLabel("Feature") || !is.HasLabel("Ogen 2") {
+		t.Errorf("labels = %v", is.Labels)
+	}
+}
+
+func TestIssueLabelPageError(t *testing.T) {
+	c := serve(t, func(_ string, vars map[string]any) string {
+		if vars["after"] == nil {
+			return `{"data":{"issue":{"id":"uuid-1","identifier":"CON-1","title":"t","url":"u",` +
+				`"labels":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":"p2"}}}}}`
+		}
+		return `{"data":null,"errors":[{"message":"rate limited"}]}`
+	})
+	if _, err := c.Issue(t.Context(), "CON-1"); err == nil || !strings.Contains(err.Error(), "labels") {
+		t.Fatalf("err = %v, want a labels error rather than an incomplete issue", err)
+	}
+}
+
 func TestIssueNotFound(t *testing.T) {
 	c := serve(t, func(string, map[string]any) string {
 		return `{"data":null,"errors":[{"message":"Entity not found: Issue"}]}`
@@ -66,6 +101,27 @@ func TestReleaseLabelReusesWorkspaceLabel(t *testing.T) {
 	id, err := c.ReleaseLabel(t.Context(), "Ogen 2")
 	if err != nil || id != "ws-label" {
 		t.Fatalf("id = %q, err = %v", id, err)
+	}
+}
+
+// A workspace "Ogen N" that is a group, or in one, can't hold stacking
+// releases: refuse it rather than reuse it or create a second one.
+func TestReleaseLabelRefusesGroupedLabel(t *testing.T) {
+	for name, node := range map[string]string{
+		"in a group": `{"id":"l","isGroup":false,"team":null,"parent":{"id":"g"}}`,
+		"a group":    `{"id":"l","isGroup":true,"team":null,"parent":null}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := serve(t, func(query string, _ map[string]any) string {
+				if strings.Contains(query, "issueLabelCreate") {
+					t.Error("created a second label")
+				}
+				return `{"data":{"issueLabels":{"nodes":[` + node + `]}}}`
+			})
+			if _, err := c.ReleaseLabel(t.Context(), "Ogen 2"); err == nil || !strings.Contains(err.Error(), "label group") {
+				t.Fatalf("err = %v", err)
+			}
+		})
 	}
 }
 

@@ -50,22 +50,33 @@ type Client struct {
 	HTTPClient *http.Client
 }
 
-// Issue returns the issue with the given identifier.
+// labelPage is one page of an issue's labels.
+type labelPage struct {
+	Nodes []struct {
+		Name string `json:"name"`
+	} `json:"nodes"`
+	PageInfo struct {
+		HasNextPage bool   `json:"hasNextPage"`
+		EndCursor   string `json:"endCursor"`
+	} `json:"pageInfo"`
+}
+
+// Issue returns the issue with the given identifier, with all its labels: the
+// section it goes in and whether a release already marked it depend on them.
 func (c *Client) Issue(ctx context.Context, identifier string) (Issue, error) {
 	const q = `query($id: String!) {
-  issue(id: $id) { id identifier title url labels { nodes { name } } }
+  issue(id: $id) {
+    id identifier title url
+    labels(first: 100) { nodes { name } pageInfo { hasNextPage endCursor } }
+  }
 }`
 	var out struct {
 		Issue *struct {
-			ID         string `json:"id"`
-			Identifier string `json:"identifier"`
-			Title      string `json:"title"`
-			URL        string `json:"url"`
-			Labels     struct {
-				Nodes []struct {
-					Name string `json:"name"`
-				} `json:"nodes"`
-			} `json:"labels"`
+			ID         string    `json:"id"`
+			Identifier string    `json:"identifier"`
+			Title      string    `json:"title"`
+			URL        string    `json:"url"`
+			Labels     labelPage `json:"labels"`
 		} `json:"issue"`
 	}
 	if err := c.do(ctx, q, map[string]any{"id": identifier}, &out); err != nil {
@@ -78,25 +89,50 @@ func (c *Client) Issue(ctx context.Context, identifier string) (Issue, error) {
 		return Issue{}, fmt.Errorf("%s: %w", identifier, ErrNotFound)
 	}
 	is := Issue{ID: out.Issue.ID, Identifier: out.Issue.Identifier, Title: out.Issue.Title, URL: out.Issue.URL}
-	for _, l := range out.Issue.Labels.Nodes {
-		is.Labels = append(is.Labels, l.Name)
+
+	const more = `query($id: String!, $after: String!) {
+  issue(id: $id) { labels(first: 100, after: $after) { nodes { name } pageInfo { hasNextPage endCursor } } }
+}`
+	page := out.Issue.Labels
+	for {
+		for _, l := range page.Nodes {
+			is.Labels = append(is.Labels, l.Name)
+		}
+		if !page.PageInfo.HasNextPage {
+			return is, nil
+		}
+		var next struct {
+			Issue struct {
+				Labels labelPage `json:"labels"`
+			} `json:"issue"`
+		}
+		vars := map[string]any{"id": identifier, "after": page.PageInfo.EndCursor}
+		if err := c.do(ctx, more, vars, &next); err != nil {
+			return Issue{}, fmt.Errorf("%s: labels: %w", identifier, err)
+		}
+		page = next.Issue.Labels
 	}
-	return is, nil
 }
 
 // ReleaseLabel returns the id of the workspace label name, creating it if it
-// doesn't exist.
+// doesn't exist. Only an ungrouped label will do: a group allows one of its
+// labels per issue, so an issue shipped in two releases would lose one. A
+// workspace label of that name that is a group or in one is an error.
 func (c *Client) ReleaseLabel(ctx context.Context, name string) (string, error) {
 	const find = `query($name: String!) {
-  issueLabels(filter: { name: { eq: $name } }) { nodes { id team { id } } }
+  issueLabels(first: 50, filter: { name: { eq: $name } }) { nodes { id isGroup team { id } parent { id } } }
 }`
 	var found struct {
 		IssueLabels struct {
 			Nodes []struct {
-				ID   string `json:"id"`
-				Team *struct {
+				ID      string `json:"id"`
+				IsGroup bool   `json:"isGroup"`
+				Team    *struct {
 					ID string `json:"id"`
 				} `json:"team"`
+				Parent *struct {
+					ID string `json:"id"`
+				} `json:"parent"`
 			} `json:"nodes"`
 		} `json:"issueLabels"`
 	}
@@ -104,9 +140,14 @@ func (c *Client) ReleaseLabel(ctx context.Context, name string) (string, error) 
 		return "", fmt.Errorf("find label %s: %w", name, err)
 	}
 	for _, l := range found.IssueLabels.Nodes {
-		if l.Team == nil {
-			return l.ID, nil
+		if l.Team != nil {
+			continue // a team's own label of the same name isn't the release label
 		}
+		if l.IsGroup || l.Parent != nil {
+			return "", fmt.Errorf("the workspace label %q is a label group or inside one; Linear allows one label "+
+				"per group on an issue, so releases couldn't stack. Move it out of the group (or rename it) and re-run", name)
+		}
+		return l.ID, nil
 	}
 
 	const create = `mutation($name: String!, $color: String!) {
