@@ -51,7 +51,7 @@ services:
     railwayServiceId: "2e9bcf39-1e57-4c64-8abb-884096fe7c4b"
   ui:
     image: ghcr.io/ogen-app/ui
-    build: 996
+    build: 997
     repo: ogen-app/ui
     railwayServiceId: "9a557a20-f8f2-4b37-95fd-18c03421933b"
 
