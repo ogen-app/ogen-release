@@ -111,7 +111,7 @@ approval takes.
 
 ## Rolling back
 
-To put the whole product back on an earlier release:
+To put production back on an earlier release's builds:
 
 1. Actions → **Deploy production** → **Run workflow**.
 2. In **Use workflow from**, pick the release tag to go back to, e.g. `ogen-3`, not a branch.
@@ -124,9 +124,15 @@ flowchart LR
   deploy --> back[("Production on Ogen 3's builds")]
 ```
 
-Every service whose running image differs from Ogen 3's `release.yaml` goes back to the build
+Every service **Ogen 3's `release.yaml` lists** whose running image differs goes back to the build
 Ogen 3 pinned. A run started from a branch is refused: the Environment only accepts `ogen-*` tags,
 and the workflow checks the ref itself.
+
+**Services added after that release aren't touched.** The deploy only knows the services in the
+release it deploys, so a service that joined `release.yaml` after Ogen 3 keeps running its current
+image. If that service is the problem, roll it back on its own with Railway's **Rollback** on its
+deployment, or remove it in Railway if it shouldn't run at all. Check the target release's build
+table (its GitHub Release) to see which services it covers.
 
 A rollback changes neither `main` nor the Release PR, so the next release carries everything forward
 again. Revert or fix whatever caused the rollback before merging the next Release PR.

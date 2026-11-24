@@ -30,12 +30,15 @@ how changes reach development.
 
 ## Roll back
 
-Roll the whole product back to an earlier release:
+Put production back on an earlier release's builds:
 
 1. Actions → **Deploy production** → **Run workflow**.
 2. In **Use workflow from**, choose the tag to go back to, e.g. `ogen-3`.
-3. Approve the run. It deploys that release's `release.yaml`: every service whose running image
-   differs goes back to the build that release pinned.
+3. Approve the run. It deploys that release's `release.yaml`: every service **it lists** whose
+   running image differs goes back to the build that release pinned.
+
+A service added to `release.yaml` after that release isn't touched and keeps its current image. If
+it's the cause, roll it back with Railway's **Rollback** on its deployment.
 
 A rollback doesn't change `main` or the open Release PR, so the next release carries everything
 forward again. Revert or fix whatever made you roll back before merging the next Release PR.
