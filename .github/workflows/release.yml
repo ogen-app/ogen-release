@@ -1,9 +1,15 @@
 name: Release
 
 # Keeps one "Release Ogen N" PR open with everything main holds since the last
-# release (ogen-N). Every push to main rebuilds branch release/next from main:
-# VERSION = N+1 and that release's notes in CHANGELOG.md. With nothing changed
-# since ogen-N, the PR is closed. Merging it releases Ogen N+1 (publish, PR 2).
+# release (ogen-N), and publishes a release when that PR merges.
+#
+#   publish  runs on the push that changed VERSION (a merged Release PR): tags
+#            ogen-N, creates the GitHub Release from CHANGELOG.md and marks the
+#            shipped Linear issues. Each step skips what's already done, so a
+#            failed run can be re-run.
+#   pr       then rebuilds branch release/next from main: VERSION = N+1 and that
+#            release's notes in CHANGELOG.md. With nothing changed since
+#            ogen-N, the PR is closed.
 on:
   push:
     branches:
@@ -20,8 +26,108 @@ permissions:
   contents: read
 
 jobs:
+  publish:
+    name: Publish the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # The tag push must come from the release App, not GITHUB_TOKEN: a tag
+      # pushed with GITHUB_TOKEN doesn't trigger the production deploy.
+      - name: Release App token
+        id: app-token
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ steps.app-token.outputs.token }}
+
+      # A Release PR is the only change to VERSION, so a push whose head commit
+      # changed it is a release; every other push skips the rest of this job.
+      - name: Is this a release?
+        id: check
+        run: |
+          if git diff --quiet HEAD^ HEAD -- VERSION; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "No release in this push."
+            exit 0
+          fi
+          version=$(cat VERSION)
+          echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing Ogen $version."
+
+      - name: Set up Go
+        if: steps.check.outputs.release == 'true'
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build release
+        if: steps.check.outputs.release == 'true'
+        run: go build -o "$RUNNER_TEMP/release" ./cmd/release
+
+      - name: Tag ogen-N
+        if: steps.check.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          tag="ogen-$VERSION"
+          if git rev-parse --quiet --verify "refs/tags/$tag" > /dev/null; then
+            if [ "$(git rev-parse "$tag^{commit}")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::$tag already exists on another commit."
+              exit 1
+            fi
+            echo "$tag already points here."
+          else
+            git tag "$tag" HEAD
+            git push --quiet origin "refs/tags/$tag"
+            echo "Tagged $tag."
+          fi
+
+      - name: GitHub Release
+        id: github-release
+        if: steps.check.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          tag="ogen-$VERSION"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "The GitHub Release for $tag exists."
+          else
+            "$RUNNER_TEMP/release" notes -version "$VERSION" > "$RUNNER_TEMP/notes.md"
+            gh release create "$tag" --verify-tag --title "Ogen $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+          echo "url=$(gh release view "$tag" --json url --jq .url)" >> "$GITHUB_OUTPUT"
+
+      - name: Mark shipped issues in Linear
+        if: steps.check.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+          URL: ${{ steps.github-release.outputs.url }}
+          GITHUB_TOKEN: ${{ github.token }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: |
+          previous=""
+          if [ "$VERSION" -gt 1 ]; then
+            previous="$RUNNER_TEMP/previous.yaml"
+            git show "ogen-$((VERSION - 1)):release.yaml" > "$previous"
+          fi
+          "$RUNNER_TEMP/release" mark -previous "$previous" -url "$URL"
+
   pr:
     name: Update the Release PR
+    needs: publish
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -65,8 +171,13 @@ jobs:
           git config user.name "${APP_SLUG}[bot]"
           git config user.email "${id}+${APP_SLUG}[bot]@users.noreply.github.com"
 
+      # The notes read GHCR anonymously, the service repos with GITHUB_TOKEN,
+      # and issue titles and labels from Linear.
       - name: Write the next release
         id: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
         run: |
           last=$(cat VERSION)
           previous=""

@@ -85,6 +85,17 @@ reviews:
         since the previous release's release.yaml; with none changed, nothing is
         written. Bad input must fail before VERSION or CHANGELOG.md is written,
         and earlier CHANGELOG.md entries must survive unchanged.
+    - path: "internal/{notes,ghcr,github,linear}/**/*.go"
+      instructions: >-
+        Release notes come from CON-NN ids at the start of commit subjects
+        (repos don't use Conventional Commits) between the two images'
+        org.opencontainers.image.revision labels. A source error must fail the
+        notes, never drop commits silently (the compare API's 250-commit cap is
+        an error). An id Linear doesn't know is listed, not fatal. Linear
+        Releases aren't available (Basic plan): shipped issues get a workspace
+        label "Ogen N", not in a label group (groups allow one label per
+        issue), and a comment; the label goes last, so a labelled issue is
+        skipped on re-run. Never log the Linear API key.
     - path: ".github/workflows/release*.yml"
       instructions: >-
         The Release PR is rebuilt from main on every push and pushed by the
