@@ -1,0 +1,92 @@
+name: Deploy production
+
+# Deploys a release, Ogen N, to production: release.yaml as of tag ogen-N,
+# the same images development ran.
+#
+#   - A new release: publishing pushes tag ogen-N, which starts this.
+#   - A rollback: Actions → Deploy production → Run workflow, with "Use
+#     workflow from" set to the older tag, e.g. ogen-3.
+#
+# Both run from the tag itself, so the production Environment's deployment
+# rule (tags ogen-*) applies to both, and the deploy uses the tooling the
+# release shipped with. The job waits for an owner's approval in that
+# Environment, which also holds the production Railway token and smoke account.
+on:
+  push:
+    tags:
+      - "ogen-*"
+  workflow_dispatch:
+
+# One production deploy at a time, never cancelling a running one. queue: max
+# keeps every waiting run: by default a newer one would replace the run already
+# waiting, and that release would never deploy.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: write # moves the deployed/production tag
+
+jobs:
+  deploy:
+    name: Deploy ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_BASE_URL }}
+
+    steps:
+      # A manual run can start from any branch or tag; only a release tag
+      # deploys. Checked before the checkout, so nothing else is fetched.
+      - name: Release tag
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          case "$REF" in
+            refs/tags/ogen-[0-9]*) ;;
+            *) echo "::error::Run this from a release tag (ogen-N), not $REF."; exit 1 ;;
+          esac
+          tag=${REF#refs/tags/}
+          if ! printf '%s' "$tag" | grep -Eq '^ogen-[0-9]+$'; then
+            echo "::error::$tag is not a release tag (ogen-N)."
+            exit 1
+          fi
+          echo "Deploying $tag."
+
+      # Credentials stay in the checkout: the tag step pushes with them.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      - name: Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        run: go run ./cmd/deploy --env production --ref "$GITHUB_SHA"
+
+      # The production smoke account comes from the Environment's secrets.
+      - name: Smoke test
+        env:
+          SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+          SMOKE_DEVICE_COOKIE: ${{ secrets.SMOKE_DEVICE_COOKIE }}
+          BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+        run: |
+          if [ -z "$BASE_URL" ]; then
+            echo "::error::The production Environment has no PRODUCTION_BASE_URL variable."
+            exit 1
+          fi
+          go run ./cmd/smoke --base-url "$BASE_URL"
+
+      # An audit marker only; nothing reads it (Railway is the truth, D7).
+      - name: Move deployed/production
+        run: |
+          git tag -f deployed/production "$GITHUB_SHA"
+          git push -f origin refs/tags/deployed/production

@@ -96,6 +96,14 @@ reviews:
         label "Ogen N", not in a label group (groups allow one label per
         issue), and a comment; the label goes last, so a labelled issue is
         skipped on re-run. Never log the Linear API key.
+    - path: ".github/workflows/deploy-production.yml"
+      instructions: >-
+        Production deploys only a release tag (ogen-N), always from the tag
+        itself: the tag push, or a manual run started from an older tag for a
+        rollback. The ref must be checked against ^ogen-[0-9]+$ before
+        anything is checked out, and reach the shell only through env. The job
+        runs in Environment production (approval, the production token, the
+        production smoke account); concurrency queues and never cancels.
     - path: ".github/workflows/release*.yml"
       instructions: >-
         The Release PR is rebuilt from main on every push and pushed by the
