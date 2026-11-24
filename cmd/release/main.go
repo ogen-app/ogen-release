@@ -81,14 +81,21 @@ func pr(o prOptions) (string, error) {
 		return output(next, false), nil
 	}
 
+	// Everything is prepared before any write, and VERSION is written last: a
+	// run that fails part-way never leaves VERSION claiming a release whose
+	// notes weren't written.
 	notes := renderNotes(next, prev == nil, changes)
-	if err := os.WriteFile(o.versionFile, []byte(strconv.Itoa(next)+"\n"), 0o644); err != nil {
-		return "", err
-	}
-	if err := prependChangelog(o.changelogFile, notes); err != nil {
+	changelog, err := prependChangelog(o.changelogFile, notes)
+	if err != nil {
 		return "", err
 	}
 	if err := os.WriteFile(o.bodyFile, []byte(renderBody(next, notes)), 0o644); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(o.changelogFile, []byte(changelog), 0o644); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(o.versionFile, []byte(strconv.Itoa(next)+"\n"), 0o644); err != nil {
 		return "", err
 	}
 	return output(next, true), nil
@@ -118,26 +125,28 @@ func parseFile(path string) (*release.File, error) {
 	return release.Parse(data)
 }
 
-// change is one service's build between two releases. From is 0 for a service
-// the previous release didn't have; To is 0 for one this release drops.
+// change is one service's build between two releases. Presence is tracked on
+// its own, since 0 is a valid build: Added means the previous release didn't
+// have the service, Removed that this one drops it.
 type change struct {
-	Service  string
-	From, To int
+	Service        string
+	From, To       int
+	Added, Removed bool
 }
 
 // diff lists the services whose build differs, in the current file's order,
 // then any the previous release had and this one doesn't. Without a previous
-// release every service is new.
+// release every service is added.
 func diff(prev, cur *release.File) []change {
 	var out []change
 	for _, s := range cur.Services {
-		c := change{Service: s.Name, To: s.Build}
+		c := change{Service: s.Name, To: s.Build, Added: true}
 		if prev != nil {
 			if p, ok := prev.Service(s.Name); ok {
 				if p.Build == s.Build {
 					continue
 				}
-				c.From = p.Build
+				c.From, c.Added = p.Build, false
 			}
 		}
 		out = append(out, c)
@@ -145,7 +154,7 @@ func diff(prev, cur *release.File) []change {
 	if prev != nil {
 		for _, p := range prev.Services {
 			if _, ok := cur.Service(p.Name); !ok {
-				out = append(out, change{Service: p.Name, From: p.Build})
+				out = append(out, change{Service: p.Name, From: p.Build, Removed: true})
 			}
 		}
 	}
@@ -171,9 +180,9 @@ func buildCell(c change, first bool) string {
 	switch {
 	case first:
 		return strconv.Itoa(c.To)
-	case c.From == 0:
+	case c.Added:
 		return strconv.Itoa(c.To) + " (new)"
-	case c.To == 0:
+	case c.Removed:
 		return strconv.Itoa(c.From) + " → removed"
 	default:
 		return strconv.Itoa(c.From) + " → " + strconv.Itoa(c.To)
@@ -188,17 +197,17 @@ func renderBody(version int, notes string) string {
 
 const changelogHeader = "# Changelog\n\n"
 
-// prependChangelog puts notes first, under the file's header, keeping every
-// earlier release below it.
-func prependChangelog(path, notes string) error {
+// prependChangelog returns the changelog with notes first, under the file's
+// header, and every earlier release below it. It doesn't write the file.
+func prependChangelog(path, notes string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		return "", err
 	}
 	rest := strings.TrimPrefix(string(data), changelogHeader)
 	out := changelogHeader + notes
 	if strings.TrimSpace(rest) != "" {
 		out += "\n" + rest
 	}
-	return os.WriteFile(path, []byte(out), 0o644)
+	return out, nil
 }
