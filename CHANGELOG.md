@@ -1,5 +1,21 @@
 # Changelog
 
+## Ogen 3
+
+### Fixes
+
+- [CON-498](https://linear.app/ogen/issue/CON-498/assistant-a-campaigns-analytics-tab-sends-no-window-so-the-assistant) Assistant: a campaign's Analytics tab sends no window, so the assistant can't tell what it is looking at · api
+- [CON-513](https://linear.app/ogen/issue/CON-513/api-for-setup-after-signup-a-read-per-source-an-onboarding-state-on) API for setup after signup: a read per source, an onboarding state on the workspace, the site's name and favicon · api
+- [CON-522](https://linear.app/ogen/issue/CON-522/ui-set-window-from-a-campaigns-analytics-tab-lands-on-the-tab-not-the) UI: set_window from a campaign's Analytics tab lands on the tab, not the workspace dashboard · ui
+- [CON-524](https://linear.app/ogen/issue/CON-524/connecting-linkedin-fails-on-production-with-we-couldnt-reach-the) Connecting LinkedIn fails on production with "We couldn't reach the platform" · api
+
+### Builds
+
+| Service | Build |
+| --- | --- |
+| api | 1553 → 1564 |
+| ui | 995 → 996 |
+
 ## Ogen 2
 
 ### Fixes
