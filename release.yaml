@@ -41,7 +41,7 @@ services:
       - "a3ee20b2-a0d3-4912-8466-e78c22abd9a7"
   api:
     image: ghcr.io/ogen-app/ogen
-    build: 1552
+    build: 1553
     repo: ogen-app/ogen
     railwayServiceId: "93fba1b2-580e-45fa-9321-11bfee4a0d84"
   harbor:
