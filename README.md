@@ -27,8 +27,13 @@ workflows that deploy it. No service code lives here.
 4. [`release.yml`](.github/workflows/release.yml) runs `cmd/release pr` on the
    same push. It rebuilds branch `release/next` from `main` with `VERSION` =
    N+1 and the release's notes in `CHANGELOG.md`, and keeps one **"Release Ogen
-   N"** PR open listing every build that changed since `ogen-N`. With nothing
-   changed, it closes the PR.
+   N"** PR open listing every build that changed since `ogen-N`, with release
+   notes: for each changed build, the CON issues in its commits (titles and
+   Feature / Improvement / Bug labels from Linear) and the commits without one.
+   With nothing changed, it closes the PR. When the PR merges, the same
+   workflow publishes the release first: tag `ogen-N`, a GitHub Release with
+   the PR's notes, and on each shipped Linear issue the label `Ogen N` and a
+   comment linking the release.
 5. [`release-gate.yml`](.github/workflows/release-gate.yml) sets
    `development-smoke` on PRs, since the `main` ruleset requires it: the
    Release PR gets the result of the `main` commit it is built on, and only
@@ -66,6 +71,7 @@ how a single service is rolled back on development.
 | Repo secret | `RAILWAY_TOKEN_DEVELOPMENT` | Railway project token scoped to development |
 | Repo variable | `DEVELOPMENT_BASE_URL` | development origin the smoke test calls |
 | Repo secrets | `SMOKE_EMAIL`, `SMOKE_PASSWORD` | dedicated smoke account on development |
+| Repo secret | `LINEAR_API_KEY` | Linear key that reads issues, creates labels, labels issues and comments; release notes and marking shipped issues |
 | Repo secret | `SMOKE_DEVICE_COOKIE` | the smoke account's `ogen_device` cookie, so CI signs in as a known device and no new-device email goes out each run |
 
 To get `SMOKE_DEVICE_COOKIE`, run the smoke test once locally (the repo is
