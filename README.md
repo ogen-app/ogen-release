@@ -10,7 +10,8 @@ workflows that deploy it. No service code lives here.
 - A push to `main` deploys **development**, which is also staging.
 - Releases are numbered **Ogen 1, Ogen 2, …**, tagged `ogen-N`. `VERSION` holds
   the last released N (`0`: nothing released yet). A release deploys
-  **production** after approval, with the same images (CON-520).
+  **production** after approval, with the same images. How to release, roll
+  back and hotfix: [`RELEASING.md`](RELEASING.md).
 
 ## Flow
 
@@ -40,6 +41,12 @@ workflows that deploy it. No service code lives here.
    while it is built on `main`'s head; any other PR passes, because it deploys
    to development after merge. So a release always ships the `release.yaml`
    development smoke-tested.
+6. [`deploy-production.yml`](.github/workflows/deploy-production.yml) runs on
+   the tag `ogen-N` that publishing pushes. It waits for an owner's approval
+   in the GitHub Environment `production`, then runs `cmd/deploy --env
+   production` with `release.yaml` as of the tag and the smoke checks against
+   production. Running it by hand from an older tag rolls production back to
+   that release.
 
 ## `cmd/deploy`
 
