@@ -1,0 +1,80 @@
+name: Release gate
+
+# development-smoke is a required check on main, and a ruleset evaluates it on
+# a PR's head commit. Development is deployed from main, never from a PR, so
+# this sets that status on every PR to main:
+#
+#   - the Release PR (release/next) gets the result of the main commit it is
+#     built on: green only once that commit is deployed and smoke-tested, and
+#     only while the PR is built on main's head, so the release is exactly the
+#     release.yaml development runs;
+#   - any other PR passes, since its change deploys to development after merge.
+#
+# It runs again after every development deploy, to refresh the Release PR.
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+  workflow_run:
+    workflows: ["Deploy development"]
+    types: [completed]
+
+permissions:
+  contents: read
+  statuses: write
+  pull-requests: read
+
+jobs:
+  gate:
+    name: development-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+
+    steps:
+      - name: Other PRs pass
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref != 'release/next'
+        env:
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api "repos/$REPO/statuses/$HEAD" -f state=success -f context=development-smoke \
+            -f description="Deploys to development after merge" > /dev/null
+
+      # Only this repo's release/next counts: a fork's branch of the same name
+      # must never inherit development's result.
+      - name: Release PR mirrors development
+        if: github.event_name == 'workflow_run' || github.event.pull_request.head.ref == 'release/next'
+        run: |
+          head=$(gh pr list -R "$REPO" --head release/next --base main --state open \
+            --json headRefOid,isCrossRepository \
+            --jq '[.[] | select(.isCrossRepository | not)][0].headRefOid // empty')
+          if [ -z "$head" ]; then
+            echo "No open Release PR."
+            exit 0
+          fi
+          base=$(gh api "repos/$REPO/commits/$head" --jq '.parents[0].sha')
+          main=$(gh api "repos/$REPO/commits/main" --jq .sha)
+
+          url=""
+          if [ "$base" != "$main" ]; then
+            state=pending
+            description="Waiting for the Release PR to be rebuilt on main"
+          else
+            # The newest development-smoke status on that main commit.
+            smoke=$(gh api "repos/$REPO/commits/$base/statuses" \
+              --jq '[.[] | select(.context == "development-smoke")][0].state // ""')
+            url=$(gh api "repos/$REPO/commits/$base/statuses" \
+              --jq '[.[] | select(.context == "development-smoke")][0].target_url // ""')
+            case "$smoke" in
+              success)       state=success; description="main ${base:0:7} is deployed and smoke-tested" ;;
+              failure|error) state=failure; description="main ${base:0:7} failed in development" ;;
+              *)             state=pending; description="Waiting for development to deploy main ${base:0:7}" ;;
+            esac
+          fi
+
+          gh api "repos/$REPO/statuses/$head" -f state="$state" -f context=development-smoke \
+            -f description="$description" -f target_url="$url" > /dev/null
+          echo "Release PR ${head:0:7}: $state ($description)"
