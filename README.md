@@ -3,6 +3,10 @@
 The Ogen product release: which build of every service ships together, and the
 workflows that deploy it. No service code lives here.
 
+**How deploys work, step by step with diagrams:** [`documentation/`](documentation/README.md):
+[deploying development](documentation/development.md) and
+[deploying production](documentation/production.md).
+
 - `release.yaml` pins `ghcr.io/ogen-app/<service>:<build>` for each service, in
   deploy order, with its Railway ids. An image that runs as several Railway
   services lists them all under `railwayServiceIds` (river-service: light, then

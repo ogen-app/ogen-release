@@ -4,6 +4,10 @@ A release is **Ogen N**: one number for the whole product, tagged `ogen-N`, pinn
 every service in `release.yaml`. Production runs exactly what development smoke-tested; nothing is
 rebuilt for it.
 
+This page is the checklist. [`documentation/production.md`](documentation/production.md) explains
+each step with diagrams, and [`documentation/development.md`](documentation/development.md) covers
+how changes reach development.
+
 ## Release
 
 1. **Merge service changes as usual.** Each green merge publishes an image, bumps `release.yaml`
