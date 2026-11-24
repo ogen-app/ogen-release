@@ -73,10 +73,13 @@ bottom, and stops at the first failure.
 
 - **Build once.** Production runs the same image development tested, identified by its build
   number. Nothing is rebuilt for production.
-- **Railway is the truth.** A deploy reads what each Railway service actually runs and changes only
-  services whose image differs from `release.yaml`. A missed deploy or a manual rollback in Railway
-  is caught on the next run.
-- **Nothing reaches production by itself.** Production changes only when a Release PR is merged and
-  an owner approves the deploy.
+- **Railway is the truth.** A deploy reads what each Railway service actually runs. It skips a
+  service only when its latest deployment is healthy and runs the pinned image; it redeploys one
+  whose image differs from `release.yaml` or whose latest deployment is unhealthy. A missed deploy
+  or a manual rollback in Railway is caught on the next run.
+- **Nothing reaches production by itself.** Every production change needs an owner: a release (a
+  merged Release PR, then an approved deploy), a rollback (an approved run from an older release
+  tag), or, in an emergency, Railway's own per-service rollback. See
+  [production.md](production.md).
 - **The logs are public.** This repo is public. No step prints a secret, a token, or a Railway id
   beyond those already in `release.yaml`.

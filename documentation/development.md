@@ -103,10 +103,18 @@ flowchart TD
 | Deploy fails: `deployment ended FAILED` | Railway couldn't start the image, often a failed healthcheck | Read the deployment's logs in Railway. A healthcheck needs the app to listen on `PORT` (harbor needs `PORT=9002`) |
 | Deploy fails: `deployment ended CRASHED` | The new build crashes on start | Read the logs; fix forward with a new merge, or pin the previous build (below) |
 | Smoke test fails | The deploy worked but the API misbehaves, or the smoke account's credentials are wrong | The failing check is named in the log. The smoke account is `SMOKE_EMAIL` / `SMOKE_PASSWORD` |
-| `development-smoke` stays pending | The deploy run is still going, or was cancelled | Wait, or re-run Deploy development |
+| Deploy fails: `deployment not done after 15m0s` | The deployment took longer than the per-service timeout | See "A timeout is not a failure" below |
+| `development-smoke` is `error` ("Cancelled") | The deploy run was cancelled | Re-run Deploy development; waiting won't change it |
+| `development-smoke` stays pending | The deploy run is still going, or it stopped before reporting | Wait for the run; if it's gone, re-run Deploy development |
 
-A failed deploy leaves the previous deployment of that service serving: Railway only switches once
-the new one is healthy.
+When Railway marks a deployment `FAILED` or `CRASHED`, the previous deployment of that service keeps
+serving: Railway only switches once the new one is healthy.
+
+**A timeout is not a failure.** When a deployment isn't done after 15 minutes, the tool stops
+waiting and fails the run, but the Railway deployment carries on. It may still become healthy and
+go live after the run has reported failure. Open the service in Railway: if the new deployment is
+live and healthy, re-run Deploy development to check the rest and report `development-smoke`; if it
+failed, treat it like any failed deployment.
 
 ## Things you can do by hand
 
