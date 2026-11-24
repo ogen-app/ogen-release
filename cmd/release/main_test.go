@@ -119,6 +119,46 @@ func TestNothingToRelease(t *testing.T) {
 	}
 }
 
+// A body that can't be written must fail before VERSION or CHANGELOG.md
+// changes, or a retry would look for a release that never happened.
+func TestUnwritableBodyLeavesReleaseFilesAlone(t *testing.T) {
+	older := "# Changelog\n\n## Ogen 1\n\nFirst release.\n"
+	o := workdir(t, "1\n", previous, older)
+	o.bodyFile = filepath.Join(t.TempDir(), "missing-dir", "body.md")
+	if _, err := pr(o); err == nil {
+		t.Fatal("want error")
+	}
+	if got := read(t, o.versionFile); got != "1\n" {
+		t.Errorf("VERSION changed to %q", got)
+	}
+	if got := read(t, o.changelogFile); got != older {
+		t.Errorf("CHANGELOG.md changed to %q", got)
+	}
+}
+
+// 0 is a valid build: moving to or from it is an ordinary change, not a
+// service appearing or disappearing.
+func TestBuildZeroIsABuild(t *testing.T) {
+	prev := "services:\n  api: { image: i, build: 0, repo: r }\n  ui: { image: i, build: 7, repo: r }\n"
+	cur := "services:\n  api: { image: i, build: 3, repo: r }\n  ui: { image: i, build: 0, repo: r }\n"
+	o := workdir(t, "1\n", prev, "")
+	if err := os.WriteFile(o.releaseFile, []byte(cur), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pr(o); err != nil {
+		t.Fatal(err)
+	}
+	notes := read(t, o.changelogFile)
+	for _, want := range []string{"| api | 0 → 3 |", "| ui | 7 → 0 |"} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("notes lack %q:\n%s", want, notes)
+		}
+	}
+	if strings.Contains(notes, "(new)") || strings.Contains(notes, "removed") {
+		t.Errorf("a build of 0 was read as a new or removed service:\n%s", notes)
+	}
+}
+
 func TestPRRejectsBadInput(t *testing.T) {
 	for name, tc := range map[string]struct {
 		version, prev string

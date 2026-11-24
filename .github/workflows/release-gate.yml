@@ -11,6 +11,8 @@ name: Release gate
 #   - any other PR passes, since its change deploys to development after merge.
 #
 # It runs again after every development deploy, to refresh the Release PR.
+# PRs from forks are skipped: their token can't write a status, so they can't
+# merge into main.
 on:
   pull_request:
     branches:
@@ -28,6 +30,9 @@ permissions:
 jobs:
   gate:
     name: development-smoke
+    if: >-
+      github.event_name == 'workflow_run' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -44,8 +49,10 @@ jobs:
             -f description="Deploys to development after merge" > /dev/null
 
       # Only this repo's release/next counts: a fork's branch of the same name
-      # must never inherit development's result.
-      - name: Release PR mirrors development
+      # must never inherit development's result. The head is written out first,
+      # so the publish step reports even if a later lookup fails.
+      - name: Find the Release PR's result
+        id: result
         if: github.event_name == 'workflow_run' || github.event.pull_request.head.ref == 'release/next'
         run: |
           head=$(gh pr list -R "$REPO" --head release/next --base main --state open \
@@ -55,6 +62,8 @@ jobs:
             echo "No open Release PR."
             exit 0
           fi
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+
           base=$(gh api "repos/$REPO/commits/$head" --jq '.parents[0].sha')
           main=$(gh api "repos/$REPO/commits/main" --jq .sha)
 
@@ -74,7 +83,28 @@ jobs:
               *)             state=pending; description="Waiting for development to deploy main ${base:0:7}" ;;
             esac
           fi
+          {
+            echo "state=$state"
+            echo "description=$description"
+            echo "url=$url"
+          } >> "$GITHUB_OUTPUT"
 
-          gh api "repos/$REPO/statuses/$head" -f state="$state" -f context=development-smoke \
-            -f description="$description" -f target_url="$url" > /dev/null
-          echo "Release PR ${head:0:7}: $state ($description)"
+      # Reports on every outcome: a lookup that failed after the Release PR was
+      # found leaves an error, never a stale or missing status.
+      - name: Publish the Release PR's status
+        if: always() && steps.result.outputs.head != ''
+        env:
+          HEAD: ${{ steps.result.outputs.head }}
+          STATE: ${{ steps.result.outputs.state }}
+          DESCRIPTION: ${{ steps.result.outputs.description }}
+          URL: ${{ steps.result.outputs.url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$STATE" ]; then
+            STATE=error
+            DESCRIPTION="The release gate couldn't read development's result"
+            URL=$RUN_URL
+          fi
+          gh api "repos/$REPO/statuses/$HEAD" -f state="$STATE" -f context=development-smoke \
+            -f description="$DESCRIPTION" -f target_url="$URL" > /dev/null
+          echo "Release PR ${HEAD:0:7}: $STATE ($DESCRIPTION)"
