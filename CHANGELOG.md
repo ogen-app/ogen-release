@@ -1,5 +1,25 @@
 # Changelog
 
+## Ogen 4
+
+### Fixes
+
+- [CON-525](https://linear.app/ogen/issue/CON-525/ui-setup-after-signup-on-the-real-api-a-read-per-source-setup-state) UI: setup after signup on the real API — a read per source, setup state from the workspace, site name and favicon, Zernio back to setup, positioning · ui
+- [CON-526](https://linear.app/ogen/issue/CON-526/zernio-sync-worker-never-sweeps-connected-accounts-never-reach-ogen) Zernio sync worker never sweeps: connected accounts never reach Ogen · api
+
+### Other
+
+- [`1802352`](https://github.com/ogen-app/ui/commit/1802352f98a58cf92e56d9f8ecca47d7545827b4) Every button in sentence case, and one small heading (#309) · ui
+- [`9865409`](https://github.com/ogen-app/ui/commit/9865409c40ac9772744edd6fc4d4aa1cc4980d61) Cards: the last misfits on ui/card, black content, and a clearer campaign Strategy (#315) · ui
+- [`c2f7720`](https://github.com/ogen-app/ui/commit/c2f7720bba18cbf86cdbe95d3aead4a60485afc1) Workspace Settings: plan beside the cards, no time zone row, and Polar for Lemon Squeezy (#316) · ui
+
+### Builds
+
+| Service | Build |
+| --- | --- |
+| api | 1564 → 1565 |
+| ui | 996 → 1000 |
+
 ## Ogen 3
 
 ### Fixes
