@@ -1,5 +1,24 @@
 # Changelog
 
+## Ogen 5
+
+### Fixes
+
+- [CON-527](https://linear.app/ogen/issue/CON-527/entitlement-counters-count-every-workspace-a-new-trial-workspace-is) Entitlement counters count every workspace: a new Trial workspace is told it has used all its campaigns · api
+- [CON-528](https://linear.app/ogen/issue/CON-528/assistant-cant-draft-or-compile-ideas-for-a-named-platform-it-refuses) Assistant can't draft or compile ideas for a named platform: it refuses as "not one of the campaign's platforms" · api
+- [CON-529](https://linear.app/ogen/issue/CON-529/assistant-cant-adapt-or-edit-a-post-selected-on-the-posts-list-the) Assistant can't adapt or edit a post selected on the Posts list: the post tools only work with the post open · api
+
+### Other
+
+- [`e500d74`](https://github.com/ogen-app/ui/commit/e500d742495bf3e2a3b41ffe986644a4db98e590) Brand cards: every entry a row with its own door, and the series run in two dialogs (#317) · ui
+
+### Builds
+
+| Service | Build |
+| --- | --- |
+| api | 1565 → 1569 |
+| ui | 1000 → 1001 |
+
 ## Ogen 4
 
 ### Fixes
