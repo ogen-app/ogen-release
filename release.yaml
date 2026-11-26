@@ -46,7 +46,7 @@ services:
     railwayServiceId: "93fba1b2-580e-45fa-9321-11bfee4a0d84"
   harbor:
     image: ghcr.io/ogen-app/harbor
-    build: 243
+    build: 245
     repo: ogen-app/harbor
     railwayServiceId: "2e9bcf39-1e57-4c64-8abb-884096fe7c4b"
   ui:
