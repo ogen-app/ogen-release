@@ -33,7 +33,7 @@ services:
     railwayServiceId: "c2cac54b-d99c-406d-b18e-dde5d6512e84"
   river-service:
     image: ghcr.io/ogen-app/river-service
-    build: 37
+    build: 40
     repo: ogen-app/river-service
     # One image, two Railway services: light queues, then heavy.
     railwayServiceIds:
