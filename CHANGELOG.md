@@ -1,5 +1,34 @@
 # Changelog
 
+## Ogen 6
+
+### Features
+
+- [CON-437](https://linear.app/ogen/issue/CON-437/harbor-tenant-lifecycle-tab-on-tenants-progress-stages-health-stuck) Harbor: Tenant lifecycle tab on /tenants (progress stages, health, stuck tenants) · harbor
+
+### Improvements
+
+- [CON-355](https://linear.app/ogen/issue/CON-355/harbor-edit-per-post-type-canvas-sizes-in-the-platform-catalog) Harbor — edit per-post-type canvas sizes in the platform catalog · api, harbor
+- [CON-475](https://linear.app/ogen/issue/CON-475/posts-list-text-search-text-in-the-posts-filter) Posts list: text search (text=) in the posts filter · api
+- [CON-530](https://linear.app/ogen/issue/CON-530/move-ogen-code-review-from-coderabbit-to-greptile) Move ogen code review from CodeRabbit to Greptile · api, harbor
+
+### Other
+
+- [CON-531](https://linear.app/ogen/issue/CON-531/polar-billing-ogen-dev-plan-proto-adapter-core-plan-changes-admin) Polar billing — Ogen dev plan (proto, adapter + core, plan changes, admin + cutover, river-service, contract) · river-service, api
+- [CON-532](https://linear.app/ogen/issue/CON-532/polar-billing-harbor-dev-plan-billingv1-renames-product-mapping) Polar billing — Harbor dev plan (billing.v1 renames, product mapping, cutover scope, Polar copy, P&L vendor + FX) · harbor
+- [CON-534](https://linear.app/ogen/issue/CON-534/ui-text-search-on-the-posts-lists-and-the-calendar-text-in-the-posts) UI: text search on the posts lists and the calendar (text= in the posts filter) · ui
+- [`3b59987`](https://github.com/ogen-app/harbor/commit/3b59987696373c4d3e424fba9f18b0af4cf1751f) make test-remote runs the Go suite on another Mac over SSH · harbor
+- [`054c443`](https://github.com/ogen-app/harbor/commit/054c44348a0f871983c70348294f0a0da92e7529) address review: the remote dir is keyed by the checkout's full path and safe to pass unquoted · harbor
+
+### Builds
+
+| Service | Build |
+| --- | --- |
+| river-service | 37 → 40 |
+| api | 1569 → 1583 |
+| harbor | 242 → 253 |
+| ui | 1001 → 1004 |
+
 ## Ogen 5
 
 ### Fixes
